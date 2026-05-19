@@ -1,0 +1,272 @@
+# Computer3 & Mainframe2 Architectural Map
+
+This document serves as the definitive architectural map and reference guide for Goonstation's `computer3` (Legacy ThinkDOS) and `mainframe2` (DWAINE OS / TermOS) codebase. It establishes clear system boundaries, documents directory hierarchies, and details the data flow and execution lifecycle across both operating system environments.
+
+---
+
+## 1. High-Level Architectural Overview
+
+Goonstation's computing simulation is divided into two distinct, coexisting architectural generations. Understanding the boundary between these two systems is critical for debugging, writing programs, or interfacing with hardware.
+
+| Feature / Dimension | Legacy Computer3 (`computer3/`) | Modern Mainframe2 (`mainframe2/`) |
+| :--- | :--- | :--- |
+| **Primary Hardware** | `/obj/machinery/computer3` (Standalone Terminals) | `/obj/machinery/networked/mainframe` (Centralized Mainframes) |
+| **Operating System** | **ThinkDOS** (`base_os.dm`) | **DWAINE OS / TermOS** (`kernel.dm`, `shell.dm`) |
+| **Base Program Datum**| `/datum/computer/file/terminal_program` | `/datum/computer/file/mainframe_program` |
+| **Hardware Interfacing**| Direct peripheral cards (`/obj/item/peripheral`) | PNET Wirenets & Device Drivers (`os_drivers.dm`) |
+| **Execution Model** | Single active program + background processing loop | Multi-process Kernel scheduling, forking, and IPC |
+| **User Interface** | Popup HTML windows (`updateUsrDialog()`) | Stream-based terminal buffers (`DWAINE_COMMAND_*`) |
+| **Storage Medium** | Floppy Disks (`disks.dm`) & Fixed HDDs (`harddrives.dm`) | Memcards (`mainframe2.dm`) & Tape Drives (`tapes.dm`) |
+
+---
+
+## 2. Directory & File Hierarchy Map
+
+```
+computer3/
+│
+├── Legacy Hardware & OS Foundation
+│   ├── computer3.dm       # /obj/machinery/computer3 - Physical terminal hardware running ThinkDOS.
+│   ├── base_os.dm         # ThinkDOS 0.7.2 OS implementation (dir, cd, run, mkdir, cp, rm, login, periph).
+│   ├── base_program.dm    # /datum/computer/file/terminal_program - Base class for ThinkDOS programs & termapps.
+│   ├── terminal.dm        # /obj/machinery/computer3/terminal - Slave terminal hardware.
+│   └── buildandrepair.dm  # Construction, deconstruction, and frame/board assembly logic.
+│
+├── Storage Mediums & Peripherals
+│   ├── disks.dm           # /obj/item/disk/data/floppy - Removable floppy disks.
+│   ├── harddrives.dm      # /obj/item/disk/data/fixed_disk - Internal fixed hard drives.
+│   ├── peripherals.dm     # /obj/item/peripheral - Hardware peripheral cards (netcards, scanners, relays).
+│   └── comm_dish.dm       # Communications dish machinery and long-range networking driver logic.
+│
+├── Core ThinkDOS Applications
+│   ├── bank_rec.dm        # Bank account records database program.
+│   ├── codereader.dm      # Barcode and ID card scanner termapp.
+│   ├── emailclient.dm     # ThinkDOS email client terminal program.
+│   ├── engine.dm          # Engine monitoring and core control terminal programs.
+│   ├── job_controls.dm    # Job management and ID modification programs.
+│   ├── med_rec.dm         # Medical records database program.
+│   ├── sec_rec.dm         # Security records database program.
+│   ├── sniffer.dm         # Network packet sniffer and diagnostic utility.
+│   ├── writer.dm          # Text editor and file writer program.
+│   ├── textfiles.dm       # /datum/computer/file/text - Basic text file datums.
+│   └── smallprogs.dm      # Assorted small termapps and utility programs.
+│
+└── mainframe2/            # Modern DWAINE OS / TermOS Subsystem
+    │
+    ├── Mainframe Hardware & PNET Devices
+    │   ├── mainframe2.dm  # /obj/machinery/networked/mainframe - DWAINE mainframe hardware & terminal connections.
+    │   ├── misc_terms.dm  # /obj/machinery/networked - PNET devices, Databanks (PNET_DATA_BANK), Bomb Testers.
+    │   ├── tapes.dm       # /obj/item/disk/data/tape - High-capacity data tapes for databanks.
+    │   ├── telesci.dm     # Teleportal testing apparatus (/obj/machinery/networked/teleportal) & teleman driver.
+    │   └── os_drivers.dm  # /datum/computer/file/mainframe_program/driver - Hardware device drivers.
+    │
+    ├── DWAINE Daemons & Virtual Files
+    │   ├── filetypes.dm   # /datum/computer/file/user_data (USR), /datum/mainframe2_user_data, /datum/computer/file/document (DOC).
+    │   ├── artifact_res.dm# Artifact research and analysis mainframe program.
+    │   ├── documents.dm   # Document viewing and editing programs for DOC files.
+    │   ├── emailserv.dm   # Mainframe email server daemon.
+    │   └── logreader.dm   # Mainframe log reading and filtering utility.
+    │
+    └── programs/          # DWAINE OS Program Executables
+        │
+        ├── _program_parent.dm # /datum/computer/file/mainframe_program - Base class for all DWAINE programs.
+        │
+        ├── os/                # Operating System Core
+        │   ├── _os_parent.dm  # Base OS class handling connections, pings, and terminal messages.
+        │   ├── bootloader.dm  # Emergency bootloader when the main OS is missing from the memory card.
+        │   ├── login.dm       # User login manager (motd, authentication requests).
+        │   │
+        │   ├── kernel/        # The DWAINE Kernel & Syscalls
+        │   │   ├── kernel.dm  # Core kernel managing hardware, users, drivers, and system calls.
+        │   │   └── syscalls/  # 22 System Calls (fkill, tfork, tspawn, mount, confget, ulogin, msg_term, etc.).
+        │   │
+        │   └── shell/         # The Msh Shell & Scripting Engine
+        │       ├── shell.dm   # Msh shell handling pipes (pipetemp), script execution, and stack operations.
+        │       ├── shell_builtins/ # Builtin commands (echo, if, while, eval, sleep, unset, break, cls, etc.).
+        │       └── shell_script_operators/ # Script operators (arithmetic, file checks, logic, stack manip, relational).
+        │
+        └── utilities/         # Standalone System Utilities (Executed via Shell)
+            ├── _utility.dm    # Base utility parent class.
+            ├── ls.dm, cd.dm, pwd.dm, mkdir.dm, rm.dm # Filesystem navigation & modification.
+            ├── cp.dm, mv.dm, ln.dm, chmod.dm, chown.dm # File manipulation & permissions.
+            ├── cat.dm, grep.dm, date.dm, scnt.dm      # Text processing & information.
+            └── su.dm, mount.dm, tar.dm, getopt.dm     # System administration & archiving.
+```
+
+---
+
+## 3. Core Subsystem Deep Dives
+
+### A. The DWAINE Kernel (`kernel.dm`) & Syscalls
+The Kernel (`/datum/computer/file/mainframe_program/os/kernel`) sits at the absolute center of the Mainframe2 architecture. It acts as the supreme arbitrator between hardware devices, connected users, and running programs.
+
+```
++-------------------------------------------------------------------+
+|                        DWAINE KERNEL                              |
+|  +----------------+  +-------------------+  +------------------+  |
+|  | User Sessions  |  | Driver Management |  | Process Table    |  |
+|  | (users list)   |  | (processing_drv)  |  | (processing list)|  |
+|  +----------------+  +-------------------+  +------------------+  |
++-------------------------------------------------------------------+
+                                 |
+         +-----------------------+-----------------------+
+         |                       |                       |
++-----------------+     +-----------------+     +-----------------+
+| IPC Syscalls    |     | File Syscalls   |     | Proc Syscalls   |
+| (dmsg, umsg)    |     | (fget, fkill)   |     | (tfork, tspawn) |
++-----------------+     +-----------------+     +-----------------+
+```
+
+#### Key Kernel Responsibilities:
+1. **Process Scheduling**: Maintains the `processing` list of active `/datum/computer/file/mainframe_program` instances, calling `process()` on each during the mainframe's machinery loop.
+2. **User Session Management**: Tracks authenticated users via `/datum/mainframe2_user_data` in the `users` list, mapping terminal connections to active shell instances.
+3. **Driver Registration**: Maintains `processing_drivers`, allowing hardware drivers to register and listen for broadcasted OS events or hardware interrupts.
+4. **System Call Execution**: Intercepts `signal_program` requests from running programs and executes atomic kernel operations via `/datum/dwaine_syscall`.
+
+#### The 22 System Calls (`syscalls/`):
+*   **Process Management**: `tfork` (fork process), `tspawn` (spawn new program), `tkill` (terminate process), `tlist` (list processes), `exit` (terminate calling program).
+*   **Virtual Filesystem**: `fget` (get file datum), `fkill` (delete file/driver record atomicly), `fwrite` (write file data), `fmode` (change permissions), `fowner` (change owner), `mount` (mount driver filesystem).
+*   **Device & Driver IPC**: `dget` (get driver), `dlist` (list drivers), `dmsg` (send message to driver), `dscan` (scan PNET network for devices), `msg_term` (send raw message to connected terminal).
+*   **User & Config Management**: `ulogin` (authenticate user), `ulist` (list users), `umsg` (send message to user), `ugroup` (manage user groups), `uinput` (request user input), `confget` (retrieve system config file).
+
+---
+
+### B. The Msh Shell (`shell.dm`) & Script Engine
+The Shell (`/datum/computer/file/mainframe_program/shell`) is the primary user-facing environment. It interprets command line strings, manages standard streams via temporary buffers, and executes stack-based DWAINE scripts.
+
+```
++-------------------------------------------------------------------+
+|                           MSH SHELL                               |
+|                                                                   |
+|  +------------------+     +-----------------+     +------------+  |
+|  | Pipeline Buffer  | --> | Script Parser   | --> | Exec Stack |  |
+|  | (pipetemp)       |     | (shscript list) |     | (stack var)|  |
+|  +------------------+     +-----------------+     +------------+  |
++-------------------------------------------------------------------+
+                                     |
+             +-----------------------+-----------------------+
+             |                                               |
++--------------------------+                   +--------------------------+
+| Shell Builtins           |                   | Script Operators         |
+| (echo, if, while, eval)  |                   | (# 0 gt, + - * / math)   |
++--------------------------+                   +--------------------------+
+```
+
+#### Pipeline Mechanics (`pipetemp`):
+Unlike Unix systems that use file descriptors for pipes, DWAINE simulates piping via the `pipetemp` variable on the shell instance.
+*   When a command string contains pipes (`|` or `^`), the shell splits the string into a `piped_list`.
+*   It executes the first command, captures its textual output, and stores it in `pipetemp`.
+*   The subsequent command in the pipeline reads `pipetemp` as its input argument, overwriting `pipetemp` with its own output upon completion.
+*   **Crucial Quirk**: `previous_pipeout` caches the aggregate output across multi-stage pipelines for command substitution `$()`.
+
+#### Stack-Oriented Scripting:
+DWAINE shell scripts execute in a virtual stack machine environment.
+*   **The Stack**: Maintained in the `stack` list variable. Operators push and pop values to perform arithmetic, logic, or comparisons.
+*   **Variables**: Scoped variables are stored in `scriptvars`. `to <var>` pops the top stack value into a variable; `eval $<var>` pushes a variable's value onto the stack.
+*   **Control Flow Builtins**: `if`, `while`, `else`, `break`. E.g., `if` pops the top stack value; if truthy (`# 0 gt`), it executes the piped command block.
+
+---
+
+### C. The Virtual Filesystem & Filetypes
+Both ThinkDOS and DWAINE OS rely on a virtualized, hierarchical object filesystem composed of `/datum/computer/file` datums sitting inside `/datum/computer/folder` containers.
+
+```
++-------------------------------------------------------------------+
+|                   /datum/computer/file (Base)                     |
+|  +-------------------------------------------------------------+  |
+|  | var/name, var/extension, var/size, var/holder, var/metadata |  |
+|  +-------------------------------------------------------------+  |
++-------------------------------------------------------------------+
+        |                                                   |
++-------------------------------+           +-------------------------------+
+| /datum/computer/folder        |           | Specialized Filetypes         |
+| var/list/contents             |           | - /text (TXT)                 |
+| var/datum/computer/file/root  |           | - /user_data (USR)            |
++-------------------------------+           | - /document (DOC)             |
+                                            | - /archive (TAR / sync)       |
+                                            +-------------------------------+
+```
+
+#### Filesystem Node Lifecycle & Memory Safety:
+*   **Holding Folders**: Every file datum maintains a `holding_folder` reference pointing to its parent `/datum/computer/folder`.
+*   **Disposal Rule**: When a file is deleted via `qdel()` or `dispose()`, it must explicitly remove itself from `holding_folder.contents`.
+*   **Driver Mountpoint Leak Quirk**: Files created inside dynamic driver mountpoints (e.g., `/mnt/radio/`) do not automatically unregister from the driver's internal `contents_mirror` when deleted via standard `rm`. **Always use `fkill` or targeted atomic file deletion on driver mountpoints** to ensure the driver's `to_remove` queue properly cleans up orphaned references.
+
+---
+
+### D. Networked Devices & Drivers (`os_drivers.dm`, `misc_terms.dm`)
+Mainframe2 communicates with physical space station machinery via PNET wire transmission. Devices connect to data terminals (`/obj/machinery/power/data_terminal`) and broadcast signals across the station's powernet wiring.
+
+```
++-------------------+      +-------------------+      +-------------------+
+| Physical Machine  | ---> | Powernet Wirenet  | ---> | Mainframe Hardware|
+| (PNET_DATA_BANK)  |      | (data_terminal)   |      | (terminals list)  |
++-------------------+      +-------------------+      +-------------------+
+                                                                |
+                                                      +-------------------+
+                                                      | Device Driver     |
+                                                      | (/driver/mountable|
+                                                      +-------------------+
+```
+
+#### The Hardware Connection Lifecycle:
+1. **Physical Handshake**: A device (e.g., `/obj/machinery/networked/storage`, tag `PNET_DATA_BANK`) pulses a `term_connect` signal across the wirenet.
+2. **Mainframe Registration**: The mainframe receives the signal, instantiates a `/datum/terminal_connection` in its `terminals` list, and assigns a unique network ID (e.g., `0202023f`).
+3. **Driver Pairing**: The mainframe searches its `processing` list for an active `/datum/computer/file/mainframe_program/driver` whose `name` or `termtag` matches the device tag. E.g., the Databank driver pairs with `PNET_DATA_BANK`.
+4. **Mountpoint Initialization**: If the driver is `/driver/mountable`, it establishes a virtual mountpoint in the DWAINE filesystem (e.g., `/mnt/bank/`), mirroring the physical contents of the device's inserted tape or memory card into `contents_mirror`.
+
+---
+
+## 4. Data Flow & Execution Lifecycle
+
+The following diagram illustrates the complete end-to-end lifecycle of a user executing a command that interacts with hardware across the Mainframe2 architecture.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User as Station User
+    participant Term as PNET Terminal Hardware
+    participant MF as Mainframe Machinery
+    participant Shell as Msh Shell Program
+    participant Kern as Kernel Program
+    participant Drv as pr6_radio Driver
+    participant Radio as Physical Radio Hardware
+
+    User->>Term: Types "pdatest" & clicks [Submit]
+    Term->>MF: Wirenet Signal (command="term_message", data="pdatest")
+    MF->>Shell: term_input("pdatest", termid)
+    
+    rect rgb(30, 45, 60)
+        note over Shell,Kern: Shell Parsing & Execution Phase
+        Shell->>Shell: parse_string() & check builtins
+        Shell->>Kern: signal_program(DWAINE_COMMAND_TSPAWN, "pdatest")
+        Kern->>Kern: Allocates progid & spawns pdatest program
+    end
+
+    rect rgb(60, 40, 40)
+        note over Shell,Drv: Hardware Driver Interaction Phase
+        Shell->>Kern: signal_program(DWAINE_COMMAND_FGET, "/mnt/radio/1149")
+        Kern->>Drv: Intercepts virtual path & queries mountpoint
+        Drv->>Radio: PNET Wirenet query for unread packets
+        Radio-->>Drv: Returns packet buffer (AB123456)
+        Drv-->>Kern: Returns virtual file datum
+        Kern-->>Shell: Pushes file datum to pipetemp buffer
+    end
+
+    rect rgb(40, 60, 40)
+        note over Shell,User: Output Rendering Phase
+        Shell->>Kern: signal_program(DWAINE_COMMAND_MSG_TERM, "*** PDA PACKET RECEIVED ***")
+        Kern->>MF: post_status(termid, "term_message", "*** PDA PACKET RECEIVED ***")
+        MF->>Term: Wirenet Broadcast
+        Term-->>User: Renders green text on terminal display
+    end
+```
+
+---
+
+## 5. Architectural Summary & Best Practices
+
+When working within Goonstation's computer simulation codebase, adhere to the following architectural rules:
+1. **Respect System Boundaries**: Never attempt to pass ThinkDOS `terminal_program` datums into Mainframe2 `processing` lists, and vice versa. E.g., the two systems have entirely different execution loops and IPC mechanics.
+2. **Always Use Atomic Deletions on Drivers**: When manipulating files inside `/mnt/` driver mountpoints, rely on `fkill` or exact file targeting (`rm /mnt/radio/1149/AB123456`). Avoid recursive `rm -r` on mountpoints to prevent memory leaks in `os_drivers.dm`.
+3. **Account for Pipeline Tokenization**: Remember that DWAINE's `pipetemp` buffer is single-threaded per shell instance. When writing complex DWAINE scripts, use `to _t` and `eval _t` to safely store and retrieve intermediate pipe states across multi-command execution chains.

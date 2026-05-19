@@ -1,6 +1,98 @@
+@import url('https://fonts.googleapis.com/css2?family=VT323&display=swap');
 @import "tailwindcss";
 
+@theme {
+  --color-term-text: var(--color-text);
+  --color-term-bg: var(--color-bg);
+  --color-term-border: var(--color-border);
+  --color-term-hover: var(--color-hover);
+  --color-term-hover-text: var(--color-hover-text);
+  --color-term-dim: var(--color-dim);
+}
+
+:root, [data-theme="thinktronic"] {
+  --color-text: #19A319;
+  --color-bg: #1B1E1B;
+  --color-border: #19A319;
+  --color-hover: #19A319;
+  --color-hover-text: #1B1E1B;
+  --color-dim: rgba(25, 163, 25, 0.3);
+}
+
+[data-theme="amber"] {
+  --color-text: #E79C01;
+  --color-bg: #1B1E1B;
+  --color-border: #E79C01;
+  --color-hover: #E79C01;
+  --color-hover-text: #1B1E1B;
+  --color-dim: rgba(231, 156, 1, 0.3);
+}
+
+[data-theme="blue"] {
+  --color-text: #A5A5FF;
+  --color-bg: #4242E7;
+  --color-border: #A5A5FF;
+  --color-hover: #A5A5FF;
+  --color-hover-text: #4242E7;
+  --color-dim: rgba(165, 165, 255, 0.3);
+}
+
+[data-theme="syndicate"] {
+  --color-text: #FF0000;
+  --color-bg: #1B1E1B;
+  --color-border: #FF0000;
+  --color-hover: #FF0000;
+  --color-hover-text: #1B1E1B;
+  --color-dim: rgba(255, 0, 0, 0.3);
+}
+
 body {
-  background-color: #020617;
-  /* matches slate-950 */
+  background-color: var(--color-bg);
+  color: var(--color-text);
+  font-family: 'VT323', monospace;
+  margin: 0;
+  padding: 0;
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 12px;
+  height: 12px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--color-bg);
+  border-left: 1px solid var(--color-border);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+}
+
+::-webkit-scrollbar-corner {
+  background: var(--color-bg);
+}
+
+/* Remove default focus outlines to replace with custom borders */
+*:focus {
+  outline: none;
+}
+
+@keyframes float-up-fade {
+  0% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  50% {
+    opacity: 1;
+    transform: translateY(-20px);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-20px);
+  }
+}
+
+.animate-float-up {
+  animation: float-up-fade 1.5s ease-out forwards;
 }
