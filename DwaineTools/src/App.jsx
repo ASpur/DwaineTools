@@ -1,6 +1,38 @@
 import { useState, useEffect } from 'react';
 import TeleporterTool from './tools/TeleporterTool';
 
+const themeColors = {
+  thinktronic: { text: '#19A319', bg: '#1B1E1B' },
+  amber: { text: '#E79C01', bg: '#1B1E1B' },
+  blue: { text: '#A5A5FF', bg: '#4242E7' },
+  syndicate: { text: '#FF0000', bg: '#1B1E1B' },
+};
+
+const setThemeFavicon = (theme) => {
+  const colors = themeColors[theme] || themeColors.thinktronic;
+  const svg = `
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+      <rect width="64" height="64" fill="${colors.bg}"/>
+      <rect x="6" y="6" width="52" height="52" fill="none" stroke="${colors.text}" stroke-width="4"/>
+      <path d="M18 22 L30 32 L18 42" fill="none" stroke="${colors.text}" stroke-width="6" stroke-linecap="square" stroke-linejoin="miter"/>
+      <path d="M34 42 H48" fill="none" stroke="${colors.text}" stroke-width="6" stroke-linecap="square"/>
+    </svg>
+  `;
+
+  const href = `data:image/svg+xml,${encodeURIComponent(svg)}`;
+  const favicon = document.getElementById('theme-favicon') || document.createElement('link');
+  favicon.setAttribute('id', 'theme-favicon');
+  favicon.setAttribute('rel', 'icon');
+  favicon.setAttribute('type', 'image/svg+xml');
+  favicon.setAttribute('href', href);
+  document.head.appendChild(favicon);
+
+  const themeColor = document.querySelector('meta[name="theme-color"]') || document.createElement('meta');
+  themeColor.setAttribute('name', 'theme-color');
+  themeColor.setAttribute('content', colors.bg);
+  document.head.appendChild(themeColor);
+};
+
 export default function App() {
   const [theme, setTheme] = useState(() => {
     return localStorage.getItem('dwaine_theme') || 'thinktronic';
@@ -15,6 +47,7 @@ export default function App() {
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
     localStorage.setItem('dwaine_theme', theme);
+    setThemeFavicon(theme);
   }, [theme]);
 
   useEffect(() => {
