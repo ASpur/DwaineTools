@@ -1,4 +1,5 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useLayoutEffect } from 'react';
+import AboutTool from './tools/AboutTool';
 import TeleporterTool from './tools/TeleporterTool';
 
 const themeColors = {
@@ -42,9 +43,13 @@ export default function App() {
     return localStorage.getItem('dwaine_active_tool') || 'teleporter';
   });
 
+  const [isCrtEnabled, setIsCrtEnabled] = useState(() => {
+    return localStorage.getItem('dwaine_crt_filter') === 'true';
+  });
+
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
     localStorage.setItem('dwaine_theme', theme);
     setThemeFavicon(theme);
@@ -54,13 +59,17 @@ export default function App() {
     localStorage.setItem('dwaine_active_tool', activeTool);
   }, [activeTool]);
 
+  useEffect(() => {
+    localStorage.setItem('dwaine_crt_filter', String(isCrtEnabled));
+  }, [isCrtEnabled]);
+
   const tools = [
     { id: 'teleporter', name: 'Teleporter Generator' },
-    // Future tools can be added here
+    { id: 'about', name: 'About' },
   ];
 
   return (
-    <div className="min-h-screen flex flex-col bg-term-bg selection:bg-term-hover selection:text-term-hover-text relative overflow-x-hidden">
+    <div className={`min-h-screen flex flex-col bg-term-bg selection:bg-term-hover selection:text-term-hover-text relative overflow-x-hidden ${isCrtEnabled ? 'crt-enabled' : ''}`}>
       
       {/* Global Header */}
       <header className="border-b-2 border-term-border p-4 flex justify-between items-center bg-term-bg z-30 relative">
@@ -78,7 +87,7 @@ export default function App() {
           </h1>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-3">
           <span className="font-bold text-lg uppercase text-term-text opacity-75 hidden sm:inline">COLOR:</span>
           <select
             value={theme}
@@ -91,6 +100,15 @@ export default function App() {
             <option value="blue">BLUE</option>
             <option value="syndicate">SYNDICATE</option>
           </select>
+          <label className="flex items-center gap-2 text-term-text font-bold text-lg uppercase cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={isCrtEnabled}
+              onChange={(e) => setIsCrtEnabled(e.target.checked)}
+              className="term-checkbox"
+            />
+            CRT
+          </label>
         </div>
       </header>
 
@@ -133,7 +151,10 @@ export default function App() {
       {/* Main Content Area */}
       <main className="flex-1 overflow-y-auto w-full relative">
         {activeTool === 'teleporter' && <TeleporterTool />}
+        {activeTool === 'about' && <AboutTool />}
       </main>
+
+      {isCrtEnabled && <div className="crt-filter" aria-hidden="true" />}
 
     </div>
   );

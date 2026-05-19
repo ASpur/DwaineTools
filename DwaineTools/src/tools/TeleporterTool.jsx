@@ -340,13 +340,25 @@ export default function TeleporterTool() {
 
         {/* Phase Steps Indicator */}
         <div className="flex flex-col md:flex-row items-center justify-center my-4 gap-4">
-          <div className={`text-2xl font-bold transition-colors ${activePhase === 1 ? 'text-term-text opacity-90' : 'text-term-text opacity-50'}`}>
+          <button
+            type="button"
+            onClick={() => setActivePhase(1)}
+            disabled={activePhase === 1}
+            className={`text-2xl font-bold transition-colors uppercase ${activePhase === 1 ? 'text-term-text opacity-90 cursor-default' : 'text-term-text opacity-50 hover:opacity-90 cursor-pointer'}`}
+            aria-current={activePhase === 1 ? 'step' : undefined}
+          >
             [ 1 ] CONFIGURATION
-          </div>
+          </button>
           <div className="hidden md:block w-16 h-px bg-term-border opacity-70"></div>
-          <div className={`text-2xl font-bold transition-colors ${activePhase === 2 ? 'text-term-text opacity-90' : 'text-term-text opacity-50'}`}>
+          <button
+            type="button"
+            onClick={() => setActivePhase(2)}
+            disabled={activePhase === 2}
+            className={`text-2xl font-bold transition-colors uppercase ${activePhase === 2 ? 'text-term-text opacity-90 cursor-default' : 'text-term-text opacity-50 hover:opacity-90 cursor-pointer'}`}
+            aria-current={activePhase === 2 ? 'step' : undefined}
+          >
             [ 2 ] WAYPOINTS & SCRIPTS
-          </div>
+          </button>
         </div>
 
         <div>
@@ -371,13 +383,6 @@ export default function TeleporterTool() {
                         id: 'login_packet_setup',
                         name: 'setup_login_packet',
                         code: 'echo registered=A|nassignment=A|naccess=34 ^ /mnt/term/loginpacket\n\nfile_send'
-                      }}
-                    />
-                    <ScriptItem
-                      script={{
-                        id: 'pdatest',
-                        name: 'pda_listener_test',
-                        code: `mount pr6_radio radio ^ rm -r /mnt/radio/1149 ^ mkdir /mnt/radio/1149 ^ rm pdatest ^ eval '#!|nwhile 1 ^ if $(grep -r -i message /mnt/radio/1149) # 0 gt ^ echo *** PDA PACKET RECEIVED *** ^ grep -r -i -h . /mnt/radio/1149 ^ echo *************************** ^ rm -r /mnt/radio/1149 ^ mkdir /mnt/radio/1149 ^ else ^ sleep 2' to _t ^ eval _t ^ pdatest`
                       }}
                     />
                   </div>
@@ -554,7 +559,7 @@ export default function TeleporterTool() {
                                 className="text-term-text hover:bg-term-hover hover:text-term-hover-text border border-term-border px-2 py-1 uppercase font-bold text-sm transition-colors cursor-pointer"
                                 title="Delete Waypoint"
                               >
-                                [ X ]
+                                [ DELETE ]
                               </button>
                               <CopyAllButton scripts={group.scripts} />
                             </div>
