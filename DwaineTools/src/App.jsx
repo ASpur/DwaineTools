@@ -451,13 +451,6 @@ export default function App() {
                   placeholder="beep"
                   onChange={(event) => setRingMessage(event.target.value)}
                   onKeyDown={(event) => {
-                    const dialogElement = document.getElementById('ring-message-dialog');
-                    if (dialogElement) {
-                      dialogElement.classList.remove('nudge-up', 'nudge-down', 'nudge-left', 'nudge-right', 'nudge-press');
-                      void dialogElement.offsetWidth;
-                    }
-                    let nudgeClass = 'nudge-press';
-
                     if (event.key === 'Enter') {
                       submitRingMessage();
                       return;
@@ -470,12 +463,14 @@ export default function App() {
                       event.preventDefault();
                       const arrowMap = { ArrowUp: '↑', ArrowDown: '↓', ArrowLeft: '←', ArrowRight: '→' };
                       setRingMessage(prev => prev + arrowMap[event.key]);
-                      const dir = event.key.replace('Arrow', '').toLowerCase();
-                      nudgeClass = `nudge-${dir}`;
-                    }
 
-                    if (dialogElement) {
-                      dialogElement.classList.add(nudgeClass);
+                      const dialogElement = document.getElementById('ring-message-dialog');
+                      if (dialogElement) {
+                        dialogElement.classList.remove('nudge-up', 'nudge-down', 'nudge-left', 'nudge-right', 'nudge-press');
+                        void dialogElement.offsetWidth;
+                        const dir = event.key.replace('Arrow', '').toLowerCase();
+                        dialogElement.classList.add(`nudge-${dir}`);
+                      }
                     }
                   }}
                   className="w-full bg-term-bg border border-term-border text-term-text px-3 py-2 text-xl focus:border-term-text"
