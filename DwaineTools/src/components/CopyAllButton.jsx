@@ -75,14 +75,16 @@ const CopyAllButton = ({ scripts, label = "[ COPY ALL ]", deleteOnly = false }) 
     }, 1500);
   };
 
-  let displayLabel = label;
-  if (chunks.length > 1 && safeChunkIndex > 0) {
-    displayLabel = label.replace("ALL", `PART ${safeChunkIndex + 1}/${chunks.length}`);
-  }
+  const displayLabel = chunks.length > 1
+    ? label.replace(/\s*\]$/, ` ${safeChunkIndex + 1}/${chunks.length} ]`)
+    : label;
 
   const copiedMessage = chunks.length > 1 && copiedChunk !== null
     ? `[ COPIED ${copiedChunk + 1}/${chunks.length} ]` 
     : '[ COPIED ]';
+  const buttonHint = chunks.length > 1
+    ? `Copies command chunk ${safeChunkIndex + 1} of ${chunks.length}`
+    : undefined;
 
   return (
     <div className="relative inline-flex z-10">
@@ -92,8 +94,12 @@ const CopyAllButton = ({ scripts, label = "[ COPY ALL ]", deleteOnly = false }) 
         </div>
       )}
       <button
+        type="button"
         onClick={handleCopyAll}
-        className="text-term-text hover:bg-term-hover hover:text-term-hover-text border border-term-border px-3 py-1 uppercase font-bold text-sm transition-colors whitespace-nowrap bg-term-bg"
+        disabled={chunks.length === 0 || copiedChunk !== null}
+        title={buttonHint}
+        aria-label={buttonHint || label.replace(/\[|\]/g, '').trim()}
+        className="text-term-text hover:bg-term-hover hover:text-term-hover-text border border-term-border px-3 py-1 uppercase font-bold text-sm transition-colors whitespace-nowrap bg-term-bg disabled:opacity-50 disabled:cursor-not-allowed"
       >
         {displayLabel}
       </button>

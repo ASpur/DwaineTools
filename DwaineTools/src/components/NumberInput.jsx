@@ -1,4 +1,4 @@
-const NumberInput = ({ label, name, value, onChange }) => {
+const NumberInput = ({ label, name, value, onChange, help }) => {
   const stepValue = (direction) => {
     const currentValue = value === '' ? 0 : Number(value);
     const nextValue = Number.isFinite(currentValue) ? currentValue + direction : direction;
@@ -14,7 +14,16 @@ const NumberInput = ({ label, name, value, onChange }) => {
 
   return (
     <div className="flex flex-col">
-      <label className="text-lg font-bold text-term-text mb-1 uppercase tracking-wider">{label}</label>
+      <label className="text-lg font-bold text-term-text mb-1 uppercase tracking-wider">
+        <span className={help ? 'field-help' : undefined}>
+          {label}
+          {help && (
+            <span className="field-help-popup" role="tooltip">
+              {help}
+            </span>
+          )}
+        </span>
+      </label>
       <div className="flex border border-term-border bg-term-bg focus-within:border-term-text transition-colors">
         <input
           type="number"

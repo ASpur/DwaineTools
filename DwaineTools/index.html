@@ -1,23 +1,38 @@
 <!doctype html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
-    <link id="theme-favicon" rel="icon" type="image/svg+xml" href="/favicon.svg">
-    <link rel="manifest" href="/site.webmanifest">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <script>
-      (() => {
-        const fallbackTheme = 'thinktronic';
-        const validThemes = new Set(['thinktronic', 'amber', 'blue', 'syndicate']);
-        const savedTheme = localStorage.getItem('dwaine_theme');
-        document.documentElement.dataset.theme = validThemes.has(savedTheme) ? savedTheme : fallbackTheme;
-      })();
-    </script>
-    <title>dwainetools</title>
-  </head>
-  <body>
-    <div id="root"></div>
-    <script type="module" src="/src/main.jsx"></script>
-  </body>
+
+<head>
+  <meta charset="UTF-8" />
+  <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
+  <link id="theme-favicon" rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link rel="manifest" href="/site.webmanifest">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=VT323&display=block">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <script>
+    (() => {
+      const fallbackTheme = 'thinktronic';
+      const isSyndicateUnlocked = localStorage.getItem('dwaine_login_packet_setup_unlocked') === 'true';
+      const validThemes = new Set(['thinktronic', 'light', 'dark', 'amber', 'blue', 'rainbow']);
+      if (isSyndicateUnlocked) validThemes.add('syndicate');
+      const savedTheme = localStorage.getItem('dwaine_theme');
+      const validFonts = new Set(['terminal', 'default']);
+      const savedFont = localStorage.getItem('dwaine_font_mode');
+      document.documentElement.dataset.theme = validThemes.has(savedTheme) ? savedTheme : fallbackTheme;
+      document.documentElement.dataset.font = validFonts.has(savedFont) ? savedFont : 'terminal';
+    })();
+  </script>
+  <title>DWAINE Tools | Goonstation</title>
+  <meta name="description" content="A collection of tools and utilities for DWAINE OS and Computer3 in Goonstation." />
+  <meta property="og:title" content="DWAINE Tools | Goonstation" />
+  <meta property="og:description" content="A collection of tools and utilities for DWAINE OS in Goonstation." />
+  <meta property="og:type" content="website" />
+</head>
+
+<body>
+  <div id="root"></div>
+  <script type="module" src="/src/main.jsx"></script>
+</body>
+
 </html>

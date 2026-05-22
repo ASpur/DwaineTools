@@ -4,6 +4,18 @@ const ScriptItem = ({ script }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [copied, setCopied] = useState(false);
 
+  const toggleOpen = () => {
+    setIsOpen(prev => !prev);
+  };
+
+  const handleToggleKeyDown = (e) => {
+    if (e.target !== e.currentTarget) return;
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      toggleOpen();
+    }
+  };
+
   const handleCopy = (e) => {
     e.stopPropagation();
     const textArea = document.createElement("textarea");
@@ -21,7 +33,12 @@ const ScriptItem = ({ script }) => {
     <div className="bg-term-bg border border-term-border mb-4 transition-colors hover:border-term-text">
       <div
         className="flex justify-between items-center px-4 py-2 hover:bg-term-dim transition-colors cursor-pointer"
-        onClick={() => setIsOpen(!isOpen)}
+        onClick={toggleOpen}
+        onKeyDown={handleToggleKeyDown}
+        role="button"
+        tabIndex={0}
+        aria-expanded={isOpen}
+        aria-label={`${isOpen ? 'Collapse' : 'Expand'} ${script.name} script`}
         style={{ borderBottom: isOpen ? '1px solid var(--color-border)' : 'none' }}
       >
         <div className="flex items-center gap-3 flex-1 py-1">
@@ -37,7 +54,9 @@ const ScriptItem = ({ script }) => {
             </div>
           )}
           <button
+            type="button"
             onClick={handleCopy}
+            aria-label={`Copy ${script.name} script`}
             className="flex items-center gap-2 text-sm font-bold px-3 py-1 bg-term-bg border border-term-border hover:bg-term-hover hover:text-term-hover-text text-term-text transition-colors uppercase"
           >
             [ COPY ]
