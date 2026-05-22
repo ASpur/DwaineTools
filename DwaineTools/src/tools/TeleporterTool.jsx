@@ -68,6 +68,7 @@ export default function TeleporterTool() {
   });
   const [isCalibrationWarningOpen, setIsCalibrationWarningOpen] = useState(false);
   const [isCalibrationGuideOpen, setIsCalibrationGuideOpen] = useState(false);
+  const [isDeployHelpOpen, setIsDeployHelpOpen] = useState(false);
   const [clearedCalibrationSnapshot, setClearedCalibrationSnapshot] = useState(null);
 
   useEffect(() => {
@@ -213,6 +214,9 @@ export default function TeleporterTool() {
     if (isCalibrationGuideOpen) {
       setIsCalibrationGuideOpen(false);
     }
+    if (isDeployHelpOpen) {
+      setIsDeployHelpOpen(false);
+    }
   };
 
   const handleModalBackdropMouseDown = (event, closeModal) => {
@@ -222,7 +226,7 @@ export default function TeleporterTool() {
   };
 
   useEffect(() => {
-    if (!isAddingWp && !wpToDelete && !editingWp && !isCalibrationWarningOpen && !isCalibrationGuideOpen) return;
+    if (!isAddingWp && !wpToDelete && !editingWp && !isCalibrationWarningOpen && !isCalibrationGuideOpen && !isDeployHelpOpen) return;
 
     const handleKeyDown = (event) => {
       if (event.key === 'Escape') {
@@ -236,13 +240,15 @@ export default function TeleporterTool() {
           setEditingWp(null);
         } else if (isAddingWp) {
           setIsAddingWp(false);
+        } else if (isDeployHelpOpen) {
+          setIsDeployHelpOpen(false);
         }
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isAddingWp, wpToDelete, editingWp, isCalibrationWarningOpen, isCalibrationGuideOpen]);
+  }, [isAddingWp, wpToDelete, editingWp, isCalibrationWarningOpen, isCalibrationGuideOpen, isDeployHelpOpen]);
 
   const calc = useMemo(() => {
     const requiredKeys = ['tx1', 'ty1', 'rx1', 'ry1', 'rx2', 'ry2'];
@@ -720,6 +726,15 @@ export default function TeleporterTool() {
                       </div>
                     </div>
                     <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setIsDeployHelpOpen(true)}
+                        className="text-term-text hover:bg-term-hover hover:text-term-hover-text border border-term-border px-3 py-1 uppercase font-bold text-sm transition-colors cursor-pointer"
+                        title="Deploy Help"
+                      >
+                        [ HELP ]
+                      </button>
+                      <div className="w-px h-6 bg-term-border opacity-50 mx-1"></div>
                       <CopyAllButton scripts={allScripts} label="[ DEPLOY ALL SCRIPTS ]" />
                       <CopyAllButton scripts={allScripts} label="[ DELETE ALL SCRIPTS ]" deleteOnly={true} />
                     </div>
@@ -919,6 +934,46 @@ export default function TeleporterTool() {
                     [ CONTINUE ANYWAY ]
                   </button>
                 </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Deploy Help Modal */}
+        {isDeployHelpOpen && (
+          <div
+            className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 backdrop-blur-sm p-4"
+            onMouseDown={(event) => handleModalBackdropMouseDown(event, closeActiveModal)}
+          >
+            <div
+              className="border-2 border-term-text bg-term-bg p-6 max-w-2xl w-full relative shadow-2xl animate-in fade-in zoom-in-95 duration-150"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="deploy-help-title"
+            >
+              <div id="deploy-help-title" className="absolute -top-4 left-4 bg-term-bg px-2 text-xl font-bold uppercase tracking-widest text-term-text">
+                [ DEPLOYMENT HELP ]
+              </div>
+              <div className="space-y-4 mt-4 text-lg uppercase leading-relaxed opacity-90">
+                <p>
+                  To deploy the scripts click deploy all. This will copy a command that writes the scripts to your current directory.
+                </p>
+                <p>
+                  Due to the command length limit, this might have to happen in chunks, if you see 1/x that means you have to copy the scripts over in x ammount of chunks.
+                </p>
+                <p>
+                  For the scripts to work, <span className="font-bold text-term-text opacity-100">teleman</span> must also be present in the same directory.
+                </p>
+              </div>
+              <div className="flex justify-end pt-6 mt-6 border-t border-term-border opacity-80">
+                <button
+                  type="button"
+                  autoFocus
+                  onClick={() => setIsDeployHelpOpen(false)}
+                  className="bg-term-text text-term-bg hover:opacity-90 px-6 py-2 uppercase font-bold text-xl transition-opacity cursor-pointer"
+                >
+                  [ CLOSE ]
+                </button>
               </div>
             </div>
           </div>
