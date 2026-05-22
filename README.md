@@ -6,4 +6,4 @@ Currently the only tool implemented is a way to deploy scripts to DWAINE to easi
 A good chunk of this project utilizes LLM tools for generating code. This project is just meant to be a personal tool so the quality isn't at any standard other than it's convinient enough for me to use.
 
 ## Other information
-This project also has an additional script that some may consider a spoiler or secret content. Maybe that pda message button isn't useless?
+This project also has an additional script that some may consider a spoiler or secret content. Maybe that set ring message button isn't useless?
