@@ -2,6 +2,9 @@ import { useState, useMemo, useEffect } from 'react';
 import ScriptItem from '../components/ScriptItem';
 import CopyAllButton from '../components/CopyAllButton';
 import NumberInput from '../components/NumberInput';
+import { useAppStore } from '../store';
+import { calculateTeleporterVariables, validateCalibration } from '../utils/teleporterMath';
+import { generateAllScripts } from '../utils/scriptGenerator';
 
 export default function TeleporterTool() {
   const defaultInputs = {
@@ -63,9 +66,9 @@ export default function TeleporterTool() {
   const [isAddingWp, setIsAddingWp] = useState(false);
   const [wpToDelete, setWpToDelete] = useState(null);
   const [editingWp, setEditingWp] = useState(null);
-  const [isLoginPacketSetupUnlocked] = useState(() => {
-    return localStorage.getItem('dwaine_login_packet_setup_unlocked') === 'true';
-  });
+  
+  const { isSyndicateUnlocked: isLoginPacketSetupUnlocked } = useAppStore();
+
   const [isCalibrationWarningOpen, setIsCalibrationWarningOpen] = useState(false);
   const [isCalibrationGuideOpen, setIsCalibrationGuideOpen] = useState(false);
   const [isDeployHelpOpen, setIsDeployHelpOpen] = useState(false);
@@ -250,98 +253,9 @@ export default function TeleporterTool() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isAddingWp, wpToDelete, editingWp, isCalibrationWarningOpen, isCalibrationGuideOpen, isDeployHelpOpen]);
 
-  const calc = useMemo(() => {
-    const requiredKeys = ['tx1', 'ty1', 'rx1', 'ry1', 'rx2', 'ry2'];
-    if (!inputs.assumeOneTile) {
-      requiredKeys.push('tx2', 'ty2');
-    }
-    const isReady = requiredKeys.every(key => inputs[key] !== '' && !isNaN(parseFloat(inputs[key])));
-
-    const n = Object.keys(inputs).reduce((acc, key) => {
-      acc[key] = key === 'assumeOneTile' ? inputs[key] : (parseFloat(inputs[key]) || 0);
-      return acc;
-    }, {});
-
-    if (!isReady) {
-      return { ...n, mx: '-', my: '-', xoff: '-', yoff: '-', tx2: '-', ty2: '-' };
-    }
-
-    let tx2_val, ty2_val;
-    if (n.assumeOneTile) {
-      tx2_val = n.tx1 + 1;
-      ty2_val = n.ty1 + 1;
-    } else {
-      tx2_val = n.tx2;
-      ty2_val = n.ty2;
-    }
-
-    const dx = (tx2_val - n.tx1) || 1; // Fallback to 1 to prevent division by zero if they only moved one axis
-    const dy = (ty2_val - n.ty1) || 1;
-
-    const mx = (n.rx2 - n.rx1) / dx;
-    const my = (n.ry2 - n.ry1) / dy;
-    const xoff = (mx * n.tx1 - n.rx1) * -1;
-    const yoff = (my * n.ty1 - n.ry1) * -1;
-
-    return { ...n, mx, my, xoff, yoff, tx2: tx2_val, ty2: ty2_val };
-  }, [inputs]);
-
-  const generateScript = (rawScript, scriptName) => {
-    const subbed = rawScript
-      .replace(/%xoff%/g, calc.xoff)
-      .replace(/%mx%/g, calc.mx)
-      .replace(/%yoff%/g, calc.yoff)
-      .replace(/%my%/g, calc.my)
-      .replace(/%tpnumber%/g, calc.teleporterNumber)
-      .replace(/%stationZ%/g, calc.stationZ);
-
-    return `echo "${subbed}" ^ ${scriptName}`;
-  };
-
-  const templates = {
-    set: "#!|neval $arg0 %xoff% - to tempx|neval $tempx %mx% / to tx|neval $arg1 %yoff% - to tempy|neval $tempy %my% / to ty|nteleman -p %tpnumber% coords $tx $ty $arg2|necho Setting to $tx $ty $arg2",
-    send: "#!|neval $arg0 %xoff% - to tempx|neval $tempx %mx% / to tx|neval $arg1 %yoff% - to tempy|neval $tempy %my% / to ty|nteleman -p %tpnumber% coords $tx $ty %stationZ%|nteleman -p %tpnumber% send",
-    get: "#!|neval $arg0 %xoff% - to tempx|neval $tempx %mx% / to tx|neval $arg1 %yoff% - to tempy|neval $tempy %my% / to ty|nteleman -p %tpnumber% coords $tx $ty %stationZ%|nteleman -p %tpnumber% receive",
-    relay: "#!|neval $arg0 %xoff% - to tempx1|neval $tempx1 %mx% / to tx1|neval $arg1 %yoff% - to tempy1|neval $tempy1 %my% / to ty1|neval $arg2 %xoff% - to tempx2|neval $tempx2 %mx% / to tx2|neval $arg3 %yoff% - to tempy2|neval $tempy2 %my% / to ty2|nteleman -p %tpnumber% relay $tx1 $ty1 %stationZ% $tx2 $ty2 %stationZ%"
-  };
-
-  const baseScripts = [
-    { id: 'set', name: 'set', code: generateScript(templates.set, "set") },
-    { id: 'send', name: 'send', code: generateScript(templates.send, "send") },
-    { id: 'get', name: 'get', code: generateScript(templates.get, "get") },
-    { id: 'relay', name: 'relay', code: generateScript(templates.relay, "relay") }
-  ];
-
-  const waypointGroups = waypoints.map(wp => {
-    const safeName = wp.name.replace(/\s+/g, '');
-    const sendToRaw = `#!|neval ${wp.x} %xoff% - to tempx|neval $tempx %mx% / to tx|neval ${wp.y} %yoff% - to tempy|neval $tempy %my% / to ty|nteleman -p %tpnumber% coords $tx $ty %stationZ%|nteleman -p %tpnumber% send`;
-    const getFromRaw = `#!|neval ${wp.x} %xoff% - to tempx|neval $tempx %mx% / to tx|neval ${wp.y} %yoff% - to tempy|neval $tempy %my% / to ty|nteleman -p %tpnumber% coords $tx $ty %stationZ%|nteleman -p %tpnumber% receive`;
-    const relayToRaw = `#!|neval $arg0 %xoff% - to tempx1|neval $tempx1 %mx% / to tx1|neval $arg1 %yoff% - to tempy1|neval $tempy1 %my% / to ty1|neval ${wp.x} %xoff% - to tempx2|neval $tempx2 %mx% / to tx2|neval ${wp.y} %yoff% - to tempy2|neval $tempy2 %my% / to ty2|nteleman -p %tpnumber% relay $tx1 $ty1 %stationZ% $tx2 $ty2 %stationZ%`;
-
-    return {
-      id: wp.id,
-      name: wp.name,
-      x: wp.x,
-      y: wp.y,
-      scripts: [
-        { id: `sendTo${safeName}`, name: `sendTo${safeName}`, code: generateScript(sendToRaw, `sendTo${safeName}`) },
-        { id: `getFrom${safeName}`, name: `getFrom${safeName}`, code: generateScript(getFromRaw, `getFrom${safeName}`) },
-        { id: `relayTo${safeName}`, name: `relayTo${safeName}`, code: generateScript(relayToRaw, `relayTo${safeName}`) }
-      ]
-    };
-  });
-
-  const allScripts = [
-    ...baseScripts,
-    ...waypointGroups.flatMap(g => g.scripts)
-  ];
-
-  const isMxInvalid = calc.mx !== '-' && ![1, 2, 4].includes(calc.mx);
-  const isMyInvalid = calc.my !== '-' && ![1, 2, 4].includes(calc.my);
-  const isXoffInvalid = calc.xoff !== '-' && (calc.xoff < -100 || calc.xoff > 0 || !Number.isInteger(calc.xoff));
-  const isYoffInvalid = calc.yoff !== '-' && (calc.yoff < -100 || calc.yoff > 0 || !Number.isInteger(calc.yoff));
-  const hasWarning = isMxInvalid || isMyInvalid || isXoffInvalid || isYoffInvalid;
-  const isCalibrationComplete = calc.mx !== '-' && inputs.teleporterNumber !== '' && inputs.stationZ !== '';
+  const calc = useMemo(() => calculateTeleporterVariables(inputs), [inputs]);
+  const { isMxInvalid, isMyInvalid, isXoffInvalid, isYoffInvalid, hasWarning, isCalibrationComplete } = validateCalibration(calc, inputs.teleporterNumber, inputs.stationZ);
+  const { baseScripts, waypointGroups, allScripts } = useMemo(() => generateAllScripts(waypoints, calc), [waypoints, calc]);
   const configurationStatus = !isCalibrationComplete ? 'INCOMPLETE' : hasWarning ? 'CHECK VALUES' : 'READY';
   const waypointStatus = `${waypointGroups.length} WAYPOINT${waypointGroups.length === 1 ? '' : 'S'} / ${allScripts.length} SCRIPTS`;
   const shouldWarnBeforeScripts = !isCalibrationComplete || hasWarning;
