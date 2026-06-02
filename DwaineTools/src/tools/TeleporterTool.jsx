@@ -19,6 +19,11 @@ export default function TeleporterTool() {
     rx2: '',
     ry2: '',
     assumeOneTile: true,
+    isAdvancedMode: false,
+    mx: '',
+    my: '',
+    xoff: '',
+    yoff: '',
   };
 
   const defaultSession = {
@@ -34,6 +39,13 @@ export default function TeleporterTool() {
         const parsed = JSON.parse(saved);
         if (parsed.assumeOneTile === undefined) {
           parsed.assumeOneTile = true;
+        }
+        if (parsed.isAdvancedMode === undefined) {
+          parsed.isAdvancedMode = false;
+          parsed.mx = '';
+          parsed.my = '';
+          parsed.xoff = '';
+          parsed.yoff = '';
         }
         return parsed;
       }
@@ -378,94 +390,117 @@ export default function TeleporterTool() {
                           help="The Z-level from your first valid scan. Use it for station destinations."
                         />
                       </div>
-                      <label className="flex items-center gap-3 cursor-pointer group w-fit mt-4">
-                        <div className="relative flex items-center justify-center w-6 h-6 bg-term-bg border border-term-border group-hover:border-term-text transition-colors">
-                          <input
-                            type="checkbox"
-                            name="assumeOneTile"
-                            checked={inputs.assumeOneTile}
-                            onChange={handleInputChange}
-                            className="absolute opacity-0 w-full h-full cursor-pointer"
-                          />
-                          {inputs.assumeOneTile && <span className="text-term-text font-bold text-lg leading-none">X</span>}
-                        </div>
-                        <span className="text-lg font-bold text-term-text uppercase tracking-wider group-hover:text-term-text opacity-90 transition-colors select-none">
-                          Assume 1-Tile Jump for Test 2
-                        </span>
-                      </label>
-                    </div>
-
-                    <div>
-                      <h3 className="text-xl font-bold border-b border-term-border opacity-70 pb-2 mb-4 uppercase">Teleporter Coordinates (Test Points)</h3>
-                      <div className="grid grid-cols-2 gap-6">
-                        <NumberInput
-                          label="TX 1"
-                          name="tx1"
-                          value={inputs.tx1}
-                          onChange={handleInputChange}
-                          help="The first test X coordinate entered into the teleporter."
-                        />
-                        <NumberInput
-                          label="TY 1"
-                          name="ty1"
-                          value={inputs.ty1}
-                          onChange={handleInputChange}
-                          help="The first test Y coordinate entered into the teleporter."
-                        />
-                        {!inputs.assumeOneTile && (
-                          <>
-                            <NumberInput
-                              label="TX 2"
-                              name="tx2"
-                              value={inputs.tx2}
-                              onChange={handleInputChange}
-                              help="The second test X coordinate entered into the teleporter."
-                            />
-                            <NumberInput
-                              label="TY 2"
-                              name="ty2"
-                              value={inputs.ty2}
-                              onChange={handleInputChange}
-                              help="The second test Y coordinate entered into the teleporter."
-                            />
-                          </>
+                      <div className="flex flex-col sm:flex-row gap-6 mt-4">
+                        {!inputs.isAdvancedMode && (
+                          <label className="flex items-center gap-3 cursor-pointer group w-fit">
+                            <div className="relative flex items-center justify-center w-6 h-6 bg-term-bg border border-term-border group-hover:border-term-text transition-colors">
+                              <input
+                                type="checkbox"
+                                name="assumeOneTile"
+                                checked={inputs.assumeOneTile}
+                                onChange={handleInputChange}
+                                className="absolute opacity-0 w-full h-full cursor-pointer"
+                              />
+                              {inputs.assumeOneTile && <span className="text-term-text font-bold text-lg leading-none">X</span>}
+                            </div>
+                            <span className="text-lg font-bold text-term-text uppercase tracking-wider group-hover:text-term-text opacity-90 transition-colors select-none">
+                              Assume 1-Tile Jump for Test 2
+                            </span>
+                          </label>
                         )}
+                        <label className="flex items-center gap-3 cursor-pointer group w-fit">
+                          <div className="relative flex items-center justify-center w-6 h-6 bg-term-bg border border-term-border group-hover:border-term-text transition-colors">
+                            <input
+                              type="checkbox"
+                              name="isAdvancedMode"
+                              checked={inputs.isAdvancedMode}
+                              onChange={handleInputChange}
+                              className="absolute opacity-0 w-full h-full cursor-pointer"
+                            />
+                            {inputs.isAdvancedMode && <span className="text-term-text font-bold text-lg leading-none">X</span>}
+                          </div>
+                          <span className="text-lg font-bold text-term-text uppercase tracking-wider group-hover:text-term-text opacity-90 transition-colors select-none">
+                            Advanced Mode
+                          </span>
+                        </label>
                       </div>
                     </div>
 
-                    <div>
-                      <h3 className="text-xl font-bold border-b border-term-border opacity-70 pb-2 mb-4 uppercase">Result Coordinates</h3>
-                      <div className="grid grid-cols-2 gap-6">
-                        <NumberInput
-                          label="RX 1"
-                          name="rx1"
-                          value={inputs.rx1}
-                          onChange={handleInputChange}
-                          help="The real X coordinate where test 1 lands."
-                        />
-                        <NumberInput
-                          label="RY 1"
-                          name="ry1"
-                          value={inputs.ry1}
-                          onChange={handleInputChange}
-                          help="The real Y coordinate where test 1 lands."
-                        />
-                        <NumberInput
-                          label="RX 2"
-                          name="rx2"
-                          value={inputs.rx2}
-                          onChange={handleInputChange}
-                          help="The real X coordinate where test 2 lands."
-                        />
-                        <NumberInput
-                          label="RY 2"
-                          name="ry2"
-                          value={inputs.ry2}
-                          onChange={handleInputChange}
-                          help="The real Y coordinate where test 2 lands."
-                        />
-                      </div>
-                    </div>
+                    {!inputs.isAdvancedMode && (
+                      <>
+                        <div>
+                          <h3 className="text-xl font-bold border-b border-term-border opacity-70 pb-2 mb-4 uppercase">Teleporter Coordinates (Test Points)</h3>
+                          <div className="grid grid-cols-2 gap-6">
+                            <NumberInput
+                              label="TX 1"
+                              name="tx1"
+                              value={inputs.tx1}
+                              onChange={handleInputChange}
+                              help="The first test X coordinate entered into the teleporter."
+                            />
+                            <NumberInput
+                              label="TY 1"
+                              name="ty1"
+                              value={inputs.ty1}
+                              onChange={handleInputChange}
+                              help="The first test Y coordinate entered into the teleporter."
+                            />
+                            {!inputs.assumeOneTile && (
+                              <>
+                                <NumberInput
+                                  label="TX 2"
+                                  name="tx2"
+                                  value={inputs.tx2}
+                                  onChange={handleInputChange}
+                                  help="The second test X coordinate entered into the teleporter."
+                                />
+                                <NumberInput
+                                  label="TY 2"
+                                  name="ty2"
+                                  value={inputs.ty2}
+                                  onChange={handleInputChange}
+                                  help="The second test Y coordinate entered into the teleporter."
+                                />
+                              </>
+                            )}
+                          </div>
+                        </div>
+
+                        <div>
+                          <h3 className="text-xl font-bold border-b border-term-border opacity-70 pb-2 mb-4 uppercase">Result Coordinates</h3>
+                          <div className="grid grid-cols-2 gap-6">
+                            <NumberInput
+                              label="RX 1"
+                              name="rx1"
+                              value={inputs.rx1}
+                              onChange={handleInputChange}
+                              help="The real X coordinate where test 1 lands."
+                            />
+                            <NumberInput
+                              label="RY 1"
+                              name="ry1"
+                              value={inputs.ry1}
+                              onChange={handleInputChange}
+                              help="The real Y coordinate where test 1 lands."
+                            />
+                            <NumberInput
+                              label="RX 2"
+                              name="rx2"
+                              value={inputs.rx2}
+                              onChange={handleInputChange}
+                              help="The real X coordinate where test 2 lands."
+                            />
+                            <NumberInput
+                              label="RY 2"
+                              name="ry2"
+                              value={inputs.ry2}
+                              onChange={handleInputChange}
+                              help="The real Y coordinate where test 2 lands."
+                            />
+                          </div>
+                        </div>
+                      </>
+                    )}
                   </div>
                 </div>
 
@@ -477,24 +512,66 @@ export default function TeleporterTool() {
                   <div className={`mt-4 mb-4 border-2 p-3 font-bold uppercase text-xl ${configurationStatus === 'READY' ? 'border-term-text' : configurationStatus === 'CHECK VALUES' ? 'border-term-text bg-term-text text-term-bg animate-pulse' : 'border-term-border opacity-70'}`}>
                     STATUS: {configurationStatus}
                   </div>
-                  <div className="grid grid-cols-2 gap-6 mt-4">
-                    <div className={`border p-4 transition-colors ${isMxInvalid ? 'border-term-text bg-term-text text-term-bg animate-pulse' : 'border-term-border opacity-70'}`}>
-                      <div className="text-lg uppercase mb-2 opacity-75">MX (Multiplier X)</div>
-                      <div className="text-3xl font-bold opacity-90">{calc.mx}</div>
+                  
+                  {inputs.isAdvancedMode ? (
+                    <div className="flex flex-col gap-4 text-xl font-bold uppercase tracking-widest mt-6">
+                      <div className={`flex flex-wrap items-center gap-2 border p-3 ${isMxInvalid || isXoffInvalid ? 'border-term-text text-term-text' : 'border-term-border opacity-90'}`}>
+                        <span>RX =</span>
+                        <input 
+                          name="mx"
+                          value={inputs.mx}
+                          onChange={handleInputChange}
+                          placeholder="MX"
+                          className="w-20 bg-term-bg border-b-2 border-term-border text-center text-term-text focus:outline-none focus:border-term-text placeholder-term-border placeholder-opacity-50" 
+                        />
+                        <span>* TX +</span>
+                        <input 
+                          name="xoff"
+                          value={inputs.xoff}
+                          onChange={handleInputChange}
+                          placeholder="XOFF"
+                          className="w-20 bg-term-bg border-b-2 border-term-border text-center text-term-text focus:outline-none focus:border-term-text placeholder-term-border placeholder-opacity-50" 
+                        />
+                      </div>
+                      <div className={`flex flex-wrap items-center gap-2 border p-3 ${isMyInvalid || isYoffInvalid ? 'border-term-text text-term-text' : 'border-term-border opacity-90'}`}>
+                        <span>RY =</span>
+                        <input 
+                          name="my"
+                          value={inputs.my}
+                          onChange={handleInputChange}
+                          placeholder="MY"
+                          className="w-20 bg-term-bg border-b-2 border-term-border text-center text-term-text focus:outline-none focus:border-term-text placeholder-term-border placeholder-opacity-50" 
+                        />
+                        <span>* TY +</span>
+                        <input 
+                          name="yoff"
+                          value={inputs.yoff}
+                          onChange={handleInputChange}
+                          placeholder="YOFF"
+                          className="w-20 bg-term-bg border-b-2 border-term-border text-center text-term-text focus:outline-none focus:border-term-text placeholder-term-border placeholder-opacity-50" 
+                        />
+                      </div>
                     </div>
-                    <div className={`border p-4 transition-colors ${isMyInvalid ? 'border-term-text bg-term-text text-term-bg animate-pulse' : 'border-term-border opacity-70'}`}>
-                      <div className="text-lg uppercase mb-2 opacity-75">MY (Multiplier Y)</div>
-                      <div className="text-3xl font-bold opacity-90">{calc.my}</div>
+                  ) : (
+                    <div className="grid grid-cols-2 gap-6 mt-4">
+                      <div className={`border p-4 transition-colors ${isMxInvalid ? 'border-term-text bg-term-text text-term-bg animate-pulse' : 'border-term-border opacity-70'}`}>
+                        <div className="text-lg uppercase mb-2 opacity-75">MX (Multiplier X)</div>
+                        <div className="text-3xl font-bold opacity-90">{calc.mx}</div>
+                      </div>
+                      <div className={`border p-4 transition-colors ${isMyInvalid ? 'border-term-text bg-term-text text-term-bg animate-pulse' : 'border-term-border opacity-70'}`}>
+                        <div className="text-lg uppercase mb-2 opacity-75">MY (Multiplier Y)</div>
+                        <div className="text-3xl font-bold opacity-90">{calc.my}</div>
+                      </div>
+                      <div className={`border p-4 transition-colors ${isXoffInvalid ? 'border-term-text bg-term-text text-term-bg animate-pulse' : 'border-term-border opacity-70'}`}>
+                        <div className="text-lg uppercase mb-2 opacity-75">XOFF (X Offset)</div>
+                        <div className="text-3xl font-bold opacity-90">{calc.xoff}</div>
+                      </div>
+                      <div className={`border p-4 transition-colors ${isYoffInvalid ? 'border-term-text bg-term-text text-term-bg animate-pulse' : 'border-term-border opacity-70'}`}>
+                        <div className="text-lg uppercase mb-2 opacity-75">YOFF (Y Offset)</div>
+                        <div className="text-3xl font-bold opacity-90">{calc.yoff}</div>
+                      </div>
                     </div>
-                    <div className={`border p-4 transition-colors ${isXoffInvalid ? 'border-term-text bg-term-text text-term-bg animate-pulse' : 'border-term-border opacity-70'}`}>
-                      <div className="text-lg uppercase mb-2 opacity-75">XOFF (X Offset)</div>
-                      <div className="text-3xl font-bold opacity-90">{calc.xoff}</div>
-                    </div>
-                    <div className={`border p-4 transition-colors ${isYoffInvalid ? 'border-term-text bg-term-text text-term-bg animate-pulse' : 'border-term-border opacity-70'}`}>
-                      <div className="text-lg uppercase mb-2 opacity-75">YOFF (Y Offset)</div>
-                      <div className="text-3xl font-bold opacity-90">{calc.yoff}</div>
-                    </div>
-                  </div>
+                  )}
 
                   {hasWarning && (
                     <div className="mt-6 p-4 border-2 border-term-text bg-term-text text-term-bg animate-pulse shadow-lg">

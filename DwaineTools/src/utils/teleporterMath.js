@@ -1,4 +1,21 @@
 export function calculateTeleporterVariables(inputs) {
+  if (inputs.isAdvancedMode) {
+    const isReady = ['mx', 'my', 'xoff', 'yoff'].every(key => inputs[key] !== '' && !isNaN(parseFloat(inputs[key])));
+    
+    if (!isReady) {
+      return { mx: '-', my: '-', xoff: '-', yoff: '-', teleporterNumber: inputs.teleporterNumber, stationZ: inputs.stationZ };
+    }
+    
+    return {
+      mx: parseFloat(inputs.mx),
+      my: parseFloat(inputs.my),
+      xoff: parseFloat(inputs.xoff),
+      yoff: parseFloat(inputs.yoff),
+      teleporterNumber: inputs.teleporterNumber,
+      stationZ: inputs.stationZ
+    };
+  }
+
   const requiredKeys = ['tx1', 'ty1', 'rx1', 'ry1', 'rx2', 'ry2'];
   if (!inputs.assumeOneTile) {
     requiredKeys.push('tx2', 'ty2');

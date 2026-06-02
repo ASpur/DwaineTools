@@ -55,6 +55,7 @@ export default function RingMessageDialog() {
 
   useEffect(() => {
     if (isRingMessageOpen) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setRingMessage('');
     }
   }, [isRingMessageOpen]);
