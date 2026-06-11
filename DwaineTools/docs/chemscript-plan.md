@@ -1,0 +1,100 @@
+# ChemScript → ChemFuck Compiler Plan
+
+ChemScript is a small imperative language that compiles to ChemFuck, the
+brainfuck dialect executed by the Goonstation chemicompiler. The compiler is
+pure JS and is verified against the emulator in `src/utils/chemfuck.js`.
+
+## Decisions (June 2026)
+
+- **Language flavor:** imperative mini-language (C/JS-ish). A recipe-style DSL
+  can be layered on top later as a frontend.
+- **Priority:** correctness & simplicity first. Naive, obviously-correct
+  codegen verified against the emulator on every construct; optimization
+  passes come later once tests exist.
+- **Scope:** lean core + comparisons & multiplication (comparisons/multiply in
+  M3). Loops must be rock-solid. The design must not preclude adding
+  functions later.
+- **Delivery:** separate DwaineTools sidebar tool (M4), with a "send to
+  emulator" handoff. The compiler itself is a UI-agnostic library.
+
+## Target machine constraints that shape the design
+
+- Loops can only test "current cell ≠ 0" — every `if`, comparison, and loop
+  lowers to zero-tests.
+- Cells hold plain numbers: **no byte wrap**, negatives allowed. Classic
+  wrapping-BF idioms don't apply. `[-]` (clear) diverges on negative cells and
+  comparison algorithms only terminate for non-negative operands, so the
+  language semantics say **values are non-negative integers**; going negative
+  is documented undefined behavior. (Watch out: `temp()` can legitimately be
+  negative °C for cryo chems.)
+- No random memory access — codegen statically tracks the data pointer and
+  emits `>`/`<` runs between fixed cell addresses.
+- Chem hardware is register-based: `sx`/`tx`/`ax` loaded from cells via
+  `}` `)` `'`, results read back via `^`.
+- Budgets: 50k executed instructions per run, ~30 op-cost per machine tick,
+  output is pasted into an in-game text field. `a * b` by repeated addition is
+  O(a·b) executed ops — constant folding mitigates the common cases.
+
+## Language (v1)
+
+```js
+let amt = volume(1);          // non-negative integer variables
+while (amt - 40) {            // truthiness: loops while value != 0
+  transfer(1, 2, 5);
+  amt = volume(1);
+}
+if (temp(1)) { pill(2, 5); } else { drain(2, 50); }
+say("DONE");
+```
+
+- Statements: `let` (initializer required), assignment, `while`, `if`/`else`,
+  builtin calls, `//` and `/* */` comments. Blocks are lexical scopes.
+- Operators: `+ -` (M1), `* == != < <= > >=` (M3), parentheses, negative
+  integer literals (for cooling targets).
+- Builtins mapping 1:1 to hardware:
+  - Actions: `transfer(src, tgt, amt)`, `isolate(src, tgt, amt, index)`,
+    `heat(res, degC)`, `waitReaction()`, `pill(res, amt)` (target 11),
+    `vial(res, amt)` (12), `drain(res, amt)` (13), `say("text")`
+  - Reads (usable in expressions): `temp(res)` (°C), `volume(res)`,
+    `volumeOf(res, index)`, `reagentCount(res)`
+
+## Architecture
+
+```
+source → lexer → recursive-descent parser → AST → codegen → ChemFuck
+```
+
+`src/utils/chemscript/{lexer,parser,codegen,index}.js`. Entry point:
+`compile(source) → { ok, code, errors, symbols, stats }` where `symbols` maps
+top-level variable names to tape cells (used heavily by tests).
+
+Codegen is an emitter with a small set of verified primitives — `moveTo`,
+`setConst`, `clear`, `copyInto`, `addInto`/`subFrom`, `if`/`ifElse`/`while`
+shells, register load/store — and everything composes from those. Cell
+allocation is a bump allocator with a free list; temporaries follow the
+"freed cells are zero" discipline (a dirty free emits a clear).
+
+**Function-readiness:** scoped symbol table from day one. Planned v2 calling
+convention is inline expansion (fresh cells per call site, no recursion), so
+the pointer stays statically known and nothing in v1 changes.
+
+## Testing
+
+Every construct gets an emulator-backed test in `scripts/chemscript-tests.mjs`
+(plain node, like `chemfuck-smoke.mjs`): compile a snippet, run it on
+`ChemfuckVM`, assert on reservoir contents / artifacts / say output / variable
+cells via the returned symbol table.
+
+## Milestones
+
+1. **M1 — loops work** ✅: lexer/parser/errors, `let`/assignment, `+ -`,
+   constants, `while`/`if`-on-nonzero, `say`, emulator-backed test harness.
+2. **M2 — chem end-to-end** ✅ (landed with M1; register ops were trivial once
+   the emitter existed): all builtins, sensing reads into variables.
+3. **M3 — comparisons & multiply:** `== != < <= > >=` and `*` via
+   non-wrapping algorithms (non-negative operands only).
+4. **M4 — the tool:** separate sidebar entry; source left / ChemFuck right,
+   compile-on-change, errors with line/col, instruction stats, "send to
+   emulator" button (writes `dwaine_chemfuck_code`, switches tool).
+5. **Later:** inlined functions, constant folding everywhere + peephole size
+   optimization, division/modulo, source-map stepping inside the emulator UI.

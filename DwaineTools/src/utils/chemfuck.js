@@ -96,7 +96,8 @@ export function parseCBF(source) {
 
 let beakerSerial = 0;
 
-export function createBeaker({ name = 'beaker', maxVolume = 50, temperature = T0C + 20, contents = [] } = {}) {
+export function createBeaker({ name = 'beaker', maxVolume = 50, temperature, temperatureC, contents = [] } = {}) {
+  temperature = temperature ?? (temperatureC != null ? T0C + temperatureC : T0C + 20);
   return {
     id: ++beakerSerial,
     name,
