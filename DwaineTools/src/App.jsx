@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect } from 'react';
 import AboutTool from './tools/AboutTool';
+import ChemicompilerTool from './tools/ChemicompilerTool';
 import TeleporterTool from './tools/TeleporterTool';
 import Header from './components/Header';
 import Sidebar from './components/Sidebar';
@@ -124,6 +125,7 @@ export default function App() {
 
       <main className="flex-1 overflow-y-auto w-full relative">
         {activeTool === 'teleporter' && <TeleporterTool key={teleporterUnlockSignal} />}
+        {activeTool === 'chemicompiler' && <ChemicompilerTool />}
         {activeTool === 'about' && <AboutTool />}
       </main>
     </div>
