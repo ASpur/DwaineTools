@@ -192,6 +192,7 @@ export class ChemfuckVM {
     this.textBuffer = '';
     this.textOutput = '';
     this.exec = 0;
+    this.ticks = 0;
     this.running = false;
     this.isHeating = false;
     this.awaitingReactionTick = false;
@@ -256,6 +257,7 @@ export class ChemfuckVM {
   /** One machine tick: up to MAX_OPERATIONS of op cost, like on_process(). */
   tick() {
     if (!this.running) return;
+    this.ticks++;
     if (this.awaitingReactionTick) {
       this.awaitingReactionTick = false;
       if (this.onReactionTick) this.onReactionTick(this);
@@ -269,10 +271,9 @@ export class ChemfuckVM {
   /** Run to completion (or maxTicks). Returns a result summary. */
   run(maxTicks = 100000) {
     if (!this.running) this.start();
-    let ticks = 0;
-    while (this.running && ticks < maxTicks) {
+    const startTicks = this.ticks;
+    while (this.running && (this.ticks - startTicks) < maxTicks) {
       this.tick();
-      ticks++;
     }
     if (this.running) {
       this.running = false;
@@ -281,7 +282,7 @@ export class ChemfuckVM {
       this.emit({ type: 'status', running: false });
     }
     return {
-      ticks,
+      ticks: this.ticks - startTicks,
       haltReason: this.haltReason,
       sayOutput: this.textOutput,
       artifacts: this.artifacts,

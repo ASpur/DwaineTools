@@ -288,7 +288,7 @@ export default function ChemicompilerTool() {
                 </TermButton>
                 <TermButton onClick={handleReset}>Reset</TermButton>
               </div>
-              <div className="grid grid-cols-3 sm:grid-cols-6 gap-2 text-center mb-4">
+              <div className="grid grid-cols-4 sm:grid-cols-8 gap-2 text-center mb-4">
                 {[
                   ['SX', vm.sx],
                   ['TX', vm.tx],
@@ -296,6 +296,8 @@ export default function ChemicompilerTool() {
                   ['DP', vm.dp],
                   ['IP', vm.ip],
                   ['EXEC', vm.exec],
+                  ['TICKS', vm.ticks],
+                  ['EST', vm.ticks ? `${vm.ticks * 2}s` : '0s'],
                 ].map(([label, value]) => (
                   <div key={label} className="border border-term-border p-2">
                     <div className="text-term-text opacity-70 uppercase">{label}</div>
