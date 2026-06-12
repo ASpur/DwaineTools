@@ -224,6 +224,10 @@ export default function ChemicompilerTool() {
           </div>
         </div>
 
+        <div className="border border-term-border px-3 py-2 text-term-text opacity-60 text-sm font-mono">
+          Note: chemical reactions are not simulated. Reagent mixing, reaction products, and reaction ticks have no effect on contents.
+        </div>
+
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* Left: code + execution */}
           <div className="space-y-6">
