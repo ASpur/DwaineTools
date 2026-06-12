@@ -16,10 +16,22 @@ import { generate } from './codegen.js';
 export { CompileError } from './lexer.js';
 export { parse } from './parser.js';
 
+export function optimize(code) {
+  let prev;
+  do {
+    prev = code;
+    code = code.replace(/><|<>/g, '');
+    code = code.replace(/\+-|-\+/g, '');
+    code = code.replace(/\[-\]\[-\]/g, '[-]');
+  } while (code !== prev);
+  return code;
+}
+
 export function compile(source) {
   try {
     const ast = parse(source);
-    const { code, symbols, cellsUsed } = generate(ast);
+    let { code, symbols, cellsUsed } = generate(ast);
+    code = optimize(code);
     return {
       ok: true,
       code,
