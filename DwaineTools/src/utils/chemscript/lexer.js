@@ -13,7 +13,8 @@ export class CompileError extends Error {
 }
 
 const KEYWORDS = new Set(['let', 'while', 'if', 'else']);
-const PUNCTUATION = new Set(['(', ')', '{', '}', ';', ',', '=', '+', '-']);
+const TWO_CHAR_OPS = new Set(['==', '!=', '<=', '>=']);
+const PUNCTUATION = new Set(['(', ')', '{', '}', ';', ',', '=', '+', '-', '*', '<', '>']);
 
 export function tokenize(source) {
   const tokens = [];
@@ -102,6 +103,13 @@ export function tokenize(source) {
       if (i >= source.length) throw new CompileError('Unterminated string', startLine, startCol);
       advance(); // closing quote
       tokens.push({ type: 'string', value: text, line: startLine, col: startCol });
+      continue;
+    }
+
+    const pair = source.slice(i, i + 2);
+    if (TWO_CHAR_OPS.has(pair)) {
+      tokens.push({ type: pair, value: pair, line: startLine, col: startCol });
+      advance(2);
       continue;
     }
 

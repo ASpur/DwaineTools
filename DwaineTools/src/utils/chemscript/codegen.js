@@ -100,6 +100,64 @@ class Emitter {
     this.free(tmp);
   }
 
+  /**
+   * Allocate n consecutive cells (always fresh from the bump, never the free
+   * list, since adjacency is required). Returned cells hold 0.
+   */
+  allocBlock(n, node) {
+    if (this.nextCell + n > RAM_SIZE) {
+      throw new CompileError('Out of tape memory (1024 cells)', node?.line ?? 0, node?.col ?? 0);
+    }
+    const base = this.nextCell;
+    this.nextCell += n;
+    return base;
+  }
+
+  freeBlock(base, n) {
+    for (let i = 0; i < n; i++) this.free(base + i);
+  }
+
+  /**
+   * Copy-free O(1) branch on whether cell `base` is zero, via the [>] pointer
+   * split: the pointer lands in one of two statically known cells and the
+   * paths re-converge, so static pointer tracking survives.
+   *
+   * Requires `base` to be the head of an allocBlock(4): [x, m1, z1, z2] where
+   * m1/z1/z2 are scratch zeros owned by this primitive (z1 is the walk landing
+   * pad and must never be touched by the branch bodies). `m2` is an ordinary
+   * non-adjacent cell holding 0.
+   *
+   * thenZero / elseNonzero are emit callbacks; they may move the pointer
+   * anywhere (pure pointer movement over z1 is fine — it doesn't write).
+   * x is preserved. All scratch cells end at 0. x must be non-negative.
+   */
+  ifZeroElse(base, m2, thenZero, elseNonzero) {
+    const x = base;
+    const m1 = base + 1;
+    const z2 = base + 3;
+    this.add(m2, 1);
+    this.add(m1, 1);
+    this.moveTo(x);
+    this.emit('[>]'); // x==0: stays at x; x!=0: walks x → m1(=1) → z1(=0)
+    this.emit('>'); // now at m1 (==1, x was zero) or z2 (==0, x nonzero)
+    this.emit('[');
+    this.ptr = m1; // this body only executes on the x==0 path
+    thenZero();
+    this.add(m2, -1); // disarm the else branch
+    this.moveTo(m1);
+    this.emit('-'); // clear marker
+    this.moveTo(z2);
+    this.emit(']');
+    this.ptr = z2; // both paths converge here
+    this.clear(m1); // no-op on the zero path; clears the marker on the other
+    this.moveTo(m2);
+    this.emit('[');
+    elseNonzero();
+    this.moveTo(m2);
+    this.emit('-');
+    this.emit(']');
+  }
+
   // --- scopes ---
 
   enterScope() {
@@ -139,10 +197,23 @@ function tryConstEval(node) {
     const left = tryConstEval(node.left);
     const right = tryConstEval(node.right);
     if (left === null || right === null) return null;
-    return node.op === '+' ? left + right : left - right;
+    switch (node.op) {
+      case '+': return left + right;
+      case '-': return left - right;
+      case '*': return left * right;
+      case '==': return Number(left === right);
+      case '!=': return Number(left !== right);
+      case '<': return Number(left < right);
+      case '<=': return Number(left <= right);
+      case '>': return Number(left > right);
+      case '>=': return Number(left >= right);
+      default: return null;
+    }
   }
   return null;
 }
+
+const COMPARISON_OPS = new Set(['==', '!=', '<', '<=', '>', '>=']);
 
 export function generate(program) {
   const em = new Emitter();
@@ -164,6 +235,8 @@ export function generate(program) {
         return cell;
       }
       case 'Binary': {
+        if (COMPARISON_OPS.has(node.op)) return genComparison(node);
+        if (node.op === '*') return genMultiply(node);
         const left = evalExpr(node.left);
         const right = evalExpr(node.right);
         em.drainInto(right, left, node.op === '+' ? '+' : '-');
@@ -181,9 +254,122 @@ export function generate(program) {
 
   /** Evaluate into an existing cell that currently holds 0. */
   const evalExprInto = (node, dst) => {
+    const constant = tryConstEval(node);
+    if (constant !== null) {
+      em.add(dst, constant);
+      return;
+    }
+    if (node.type === 'Call' && (node.callee in READ_BUILTINS || node.callee === 'volumeOf')) {
+      // Reads can write straight to dst via ^, avoiding a long drain from a
+      // faraway temp — this matters inside comparison loops.
+      evalReadBuiltinInto(node, dst);
+      return;
+    }
     const tmp = evalExpr(node);
     em.drainInto(tmp, dst);
     em.free(tmp);
+  };
+
+  /**
+   * result = left * right by repeated addition: O(left · right) executed ops,
+   * so keep non-constant products small (see docs). Constant products never
+   * get here — tryConstEval folds them.
+   */
+  const genMultiply = (node) => {
+    const left = evalExpr(node.left);
+    const right = evalExpr(node.right);
+    const result = em.alloc(node);
+    em.moveTo(left);
+    em.emit('[');
+    em.add(left, -1);
+    em.copyInto(right, result, node);
+    em.moveTo(left);
+    em.emit(']');
+    em.free(left); // consumed to 0
+    em.freeDirty(right); // preserved by copyInto, so still nonzero
+    return result;
+  };
+
+  /**
+   * Comparisons produce 0/1 via a paired-decrement race on copies of the
+   * operands: each round is O(1) thanks to ifZeroElse, so a comparison costs
+   * ~60·min(a,b) executed ops and only terminates for non-negative operands.
+   *
+   * Race variants: lt → 1 iff A exhausts while B is nonzero;
+   * le → 1 iff A exhausts first or simultaneously; eq → 1 iff both exhaust
+   * together. '>'/' >=' swap which operand fills which block (source
+   * evaluation order is preserved), '!=' inverts eq.
+   */
+  const genComparison = (node) => {
+    const variant = { '<': 'lt', '<=': 'le', '>': 'lt', '>=': 'le', '==': 'eq', '!=': 'eq' }[node.op];
+    const swapped = node.op === '>' || node.op === '>=';
+
+    // One contiguous block keeps every pointer hop inside the race loop short
+    // (the per-round cost is dominated by pointer travel):
+    // [A, m1a, z1a, z2a, m2a, F, B, m1b, z1b, z2b, m2b, R]
+    const blk = em.allocBlock(12, node);
+    const aBlk = blk;
+    const m2a = blk + 4;
+    const flag = blk + 5;
+    const bBlk = blk + 6;
+    const m2b = blk + 10;
+    const result = blk + 11;
+    evalExprInto(node.left, swapped ? bBlk : aBlk);
+    evalExprInto(node.right, swapped ? aBlk : bBlk);
+
+    em.add(flag, 1);
+    em.moveTo(flag);
+    em.emit('[');
+    em.ifZeroElse(
+      aBlk,
+      m2a,
+      () => {
+        // A exhausted (first, or together with B)
+        em.add(flag, -1);
+        if (variant === 'le') {
+          em.add(result, 1);
+        } else if (variant === 'lt') {
+          em.ifZeroElse(bBlk, m2b, () => {}, () => em.add(result, 1));
+        } else {
+          em.ifZeroElse(bBlk, m2b, () => em.add(result, 1), () => {});
+        }
+      },
+      () => {
+        em.ifZeroElse(
+          bBlk,
+          m2b,
+          () => em.add(flag, -1), // B exhausted first: a > b, result stays 0
+          () => {
+            em.add(aBlk, -1);
+            em.add(bBlk, -1);
+          }
+        );
+      }
+    );
+    em.moveTo(flag);
+    em.emit(']');
+
+    em.free(flag); // loop exits with flag = 0
+    em.free(m2a); // ifZeroElse always consumes its m2
+    em.free(m2b);
+    em.freeDirty(aBlk); // leftover counter values
+    em.freeDirty(bBlk);
+    em.freeBlock(aBlk + 1, 3); // scratch cells are guaranteed 0
+    em.freeBlock(bBlk + 1, 3);
+
+    if (node.op === '!=') {
+      const inverted = em.alloc(node);
+      em.add(inverted, 1);
+      em.moveTo(result);
+      em.emit('[');
+      em.add(inverted, -1);
+      em.moveTo(result);
+      em.emit('-');
+      em.emit(']');
+      em.free(result);
+      return inverted;
+    }
+    return result;
   };
 
   const expectArgs = (node, count) => {
@@ -200,25 +386,34 @@ export function generate(program) {
     return cell;
   };
 
-  const evalReadBuiltin = (node) => {
+  /** Emit a read builtin so its result lands in dst (which must hold 0). */
+  const evalReadBuiltinInto = (node, dst) => {
     if (node.callee in READ_BUILTINS) {
       expectArgs(node, 1);
-      const cell = loadRegister(node.args[0], '}'); // sx = reservoir id
+      evalExprInto(node.args[0], dst); // reservoir id
+      em.moveTo(dst);
+      em.emit('}'); // sx = id
       em.emit(READ_BUILTINS[node.callee]);
       em.emit('^'); // overwrite the id cell with ax (the result)
-      return cell;
+      return;
     }
     if (node.callee === 'volumeOf') {
       expectArgs(node, 2);
       const res = loadRegister(node.args[0], '}');
       em.freeDirty(res);
-      const idx = evalExpr(node.args[1]);
-      em.moveTo(idx); // V reads the reagent index from the current cell
+      evalExprInto(node.args[1], dst); // reagent index
+      em.moveTo(dst); // V reads the index from the current cell
       em.emit('V');
       em.emit('^');
-      return idx;
+      return;
     }
     throw new CompileError(`Unknown function '${node.callee}' in expression`, node.line, node.col);
+  };
+
+  const evalReadBuiltin = (node) => {
+    const cell = em.alloc(node);
+    evalReadBuiltinInto(node, cell);
+    return cell;
   };
 
   const genTransfer = (node, srcArg, tgtArg, amtArg, indexArg = null) => {

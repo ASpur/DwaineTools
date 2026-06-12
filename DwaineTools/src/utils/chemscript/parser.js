@@ -8,7 +8,9 @@
  *             | 'if' '(' expr ')' block ('else' (block | ifStmt))?
  *             | call ';'
  * block      := '{' statement* '}'
- * expr       := term (('+'|'-') term)*
+ * expr       := additive (('=='|'!='|'<'|'<='|'>'|'>=') additive)?   -- no chaining
+ * additive   := multiplicative (('+'|'-') multiplicative)*
+ * multiplicative := term ('*' term)*
  * term       := NUMBER | '-' NUMBER | IDENT | call | '(' expr ')'
  * call       := IDENT '(' (expr (',' expr)*)? ')'
  */
@@ -80,11 +82,37 @@ export function parse(source) {
     throw new CompileError(`Expected expression but got '${token.value ?? 'end of input'}'`, token.line, token.col);
   };
 
-  const parseExpr = () => {
+  const parseMultiplicative = () => {
     let left = parseTerm();
-    while (peek().type === '+' || peek().type === '-') {
+    while (peek().type === '*') {
       const op = next();
       const right = parseTerm();
+      left = { type: 'Binary', op: op.type, left, right, line: op.line, col: op.col };
+    }
+    return left;
+  };
+
+  const parseAdditive = () => {
+    let left = parseMultiplicative();
+    while (peek().type === '+' || peek().type === '-') {
+      const op = next();
+      const right = parseMultiplicative();
+      left = { type: 'Binary', op: op.type, left, right, line: op.line, col: op.col };
+    }
+    return left;
+  };
+
+  const COMPARISON_OPS = new Set(['==', '!=', '<', '<=', '>', '>=']);
+
+  const parseExpr = () => {
+    let left = parseAdditive();
+    if (COMPARISON_OPS.has(peek().type)) {
+      const op = next();
+      const right = parseAdditive();
+      if (COMPARISON_OPS.has(peek().type)) {
+        const tok = peek();
+        throw new CompileError('Chained comparisons are not supported', tok.line, tok.col);
+      }
       left = { type: 'Binary', op: op.type, left, right, line: op.line, col: op.col };
     }
     return left;

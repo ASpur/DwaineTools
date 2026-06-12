@@ -152,7 +152,72 @@ const TWO_REAGENTS = {
   check('waitReaction completes', r.run.sayOutput, 'OK');
 }
 
+// --- M3: comparisons ---
+{
+  // exhaustive: every operator over 0..6 × 0..6, checked against JS semantics
+  const ops = { '==': (a, b) => a === b, '!=': (a, b) => a !== b, '<': (a, b) => a < b, '<=': (a, b) => a <= b, '>': (a, b) => a > b, '>=': (a, b) => a >= b };
+  let bad = [];
+  for (const [op, fn] of Object.entries(ops)) {
+    for (let a = 0; a <= 6; a++) {
+      for (let b = 0; b <= 6; b++) {
+        const r = runScript(`let a = ${a}; let b = ${b}; let r = a ${op} b;`);
+        if (cellOf(r, 'r') !== Number(fn(a, b))) bad.push(`${a} ${op} ${b} → ${cellOf(r, 'r')}`);
+      }
+    }
+  }
+  check('comparison fuzz 0..6 (294 cases)', bad, []);
+}
+{
+  const r = runScript('let i = 0; while (i < 5) { i = i + 1; }');
+  check('while with comparison', cellOf(r, 'i'), 5);
+}
+{
+  const r = runScript('let a = 200; let b = 150; let r = a > b;');
+  check('comparison with large values', cellOf(r, 'r'), 1);
+  check('large comparison stays under exec limit', r.run.haltReason, 'completed');
+}
+{
+  const r = runScript('let x = 3; let y = 0; if (x == 3) { y = 1; } else { y = 2; }');
+  check('if on equality', cellOf(r, 'y'), 1);
+}
+
+// --- M3: multiplication ---
+{
+  const r = runScript('let a = 3; let b = 4; let p = a * b;');
+  check('multiply variables', cellOf(r, 'p'), 12);
+  check('multiply preserves nothing weird: a', cellOf(r, 'a'), 3);
+}
+{
+  const r = runScript('let a = 0; let p = a * 5; let q = 5 * a;');
+  check('multiply by zero (left)', cellOf(r, 'p'), 0);
+  check('multiply by zero (right)', cellOf(r, 'q'), 0);
+}
+{
+  const r = runScript('let p = 6 * 7;');
+  check('constant-folded multiply', cellOf(r, 'p'), 42);
+  check('folded multiply is short', r.compiled.code.length < 50, true);
+}
+{
+  const r = runScript('let a = 3; let r = 2 + a * 4;');
+  check('precedence: * binds tighter than +', cellOf(r, 'r'), 14);
+}
+
+// --- M3: comparisons driving chem logic ---
+{
+  const r = runScript('while (volume(1) > 40) { transfer(1, 2, 1); }', {
+    reservoirs: { 1: { contents: [{ id: 'water', volume: 50 }] }, 2: { contents: [] } },
+  });
+  check('comparison-driven transfer loop: res1', Math.round(r.vm.reservoirs[1].contents[0].volume), 40);
+  check('comparison-driven transfer loop: res2', Math.round(r.vm.reservoirs[2].contents[0].volume), 10);
+  check('comparison-driven loop completes', r.run.haltReason, 'completed');
+  console.log(`  (exec used: ${r.vm.exec} / 50000)`);
+}
+
 // --- errors ---
+{
+  const r = compile('let x = 1 < 2 < 3;');
+  check('chained comparison rejected', r.ok === false && r.errors[0].message.includes('Chained'), true);
+}
 {
   const r = compile('let = 5;');
   check('parse error reported', r.ok, false);

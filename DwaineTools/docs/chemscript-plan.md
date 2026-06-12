@@ -91,8 +91,22 @@ cells via the returned symbol table.
    constants, `while`/`if`-on-nonzero, `say`, emulator-backed test harness.
 2. **M2 — chem end-to-end** ✅ (landed with M1; register ops were trivial once
    the emitter existed): all builtins, sensing reads into variables.
-3. **M3 — comparisons & multiply:** `== != < <= > >=` and `*` via
-   non-wrapping algorithms (non-negative operands only).
+3. **M3 — comparisons & multiply** ✅: `== != < <= > >=` produce 0/1 via a
+   paired-decrement race on operand copies; each round is O(1) thanks to a
+   copy-free zero-branch built on the `[>]` pointer-split idiom (pointer lands
+   in one of two statically-known cells and the paths re-converge, preserving
+   static tracking — see `Emitter.ifZeroElse`). `*` is repeated addition.
+   Comparisons are non-associative (`a < b < c` is a compile error).
+
+   **Cost model (50k executed-instruction budget):**
+   - Comparison: ~70·min(a,b) ops. Fine standalone even for values ~500, but
+     inside loops it adds up — `while (volume(1) > 40)` with ten iterations
+     uses ~42k. Prefer difference conditions (`while (volume(1) - 40)`) or
+     compare against small values in hot loops.
+   - Multiply: ~25·a·b ops for non-constant operands — keep products of
+     runtime values small (≲ 40×40). Constant products fold at compile time.
+   - Comparisons/multiplies only terminate for **non-negative operands**
+     (negative cells diverge under zero-test loops; beware negative `temp()`).
 4. **M4 — the tool:** separate sidebar entry; source left / ChemFuck right,
    compile-on-change, errors with line/col, instruction stats, "send to
    emulator" button (writes `dwaine_chemfuck_code`, switches tool).
