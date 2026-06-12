@@ -6,6 +6,12 @@
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev", "--prefix", "DwaineTools"],
       "port": 5173
+    },
+    {
+      "name": "dwainetools-dev-alt",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev", "--prefix", "DwaineTools", "--", "--port", "5199"],
+      "port": 5199
     }
   ]
 }

@@ -26,7 +26,8 @@ class Emitter {
     this.out = [];
     this.ptr = 0;
     this.nextCell = 0;
-    this.freeList = [];
+    this.freeList = []; // entries {cell, dirty}; dirty = runtime value may be nonzero
+    this.loopDepth = 0; // > 0 while emitting code inside a loop body
     this.scopes = [new Map()];
     this.globalSymbols = {};
   }
@@ -42,21 +43,79 @@ class Emitter {
     this.ptr = cell;
   }
 
-  alloc(node) {
-    if (this.freeList.length > 0) return this.freeList.pop();
+  /**
+   * Take a cell from the free list (preferring clean cells, then proximity to
+   * `near`) or fresh from the bump. Returns { cell, dirty } without emitting
+   * a clear — callers that need a guaranteed-zero cell use alloc().
+   */
+  allocRaw(node, near = null) {
+    if (this.freeList.length > 0) {
+      let best = 0;
+      for (let i = 1; i < this.freeList.length; i++) {
+        const candidate = this.freeList[i];
+        const current = this.freeList[best];
+        if (candidate.dirty !== current.dirty) {
+          if (!candidate.dirty) best = i;
+        } else if (near !== null && Math.abs(candidate.cell - near) < Math.abs(current.cell - near)) {
+          best = i;
+        }
+      }
+      return this.freeList.splice(best, 1)[0];
+    }
     if (this.nextCell >= RAM_SIZE) {
       throw new CompileError('Out of tape memory (1024 cells)', node?.line ?? 0, node?.col ?? 0);
     }
-    return this.nextCell++;
+    return { cell: this.nextCell++, dirty: false };
+  }
+
+  alloc(node) {
+    const { cell, dirty } = this.allocRaw(node);
+    if (dirty) this.clear(cell);
+    return cell;
   }
 
   free(cell) {
-    this.freeList.push(cell);
+    this.freeList.push({ cell, dirty: false });
   }
 
+  /**
+   * Free a cell whose runtime value may be nonzero. Outside loops the clear
+   * is deferred until (and unless) the cell is reallocated. Inside a loop
+   * body the clear must be emitted eagerly: this code re-executes, so a
+   * deferred clear would leave iteration N's garbage in place for the same
+   * static code at iteration N+1.
+   */
   freeDirty(cell) {
-    this.clear(cell);
-    this.free(cell);
+    if (this.loopDepth > 0) {
+      this.clear(cell);
+      this.free(cell);
+    } else {
+      this.freeList.push({ cell, dirty: true });
+    }
+  }
+
+  /** Snapshot free-list state before a conditionally-executed region. */
+  snapshotFreeState() {
+    return {
+      dirty: new Map(this.freeList.map((entry) => [entry.cell, entry.dirty])),
+      watermark: this.nextCell,
+    };
+  }
+
+  /**
+   * Conservative merge after a conditionally-executed region (if-branch or
+   * zero-iteration loop): on the runtime path that skipped the region, cells
+   * keep their pre-region values. So anything dirty before stays dirty, and
+   * any cell that was live before but freed inside is dirty too. Cells fresh
+   * from the bump inside the region were 0 beforehand, so their body marking
+   * stands.
+   */
+  mergeFreeState(snapshot) {
+    for (const entry of this.freeList) {
+      const before = snapshot.dirty.get(entry.cell);
+      if (before === true) entry.dirty = true;
+      else if (before === undefined && entry.cell < snapshot.watermark) entry.dirty = true;
+    }
   }
 
   clear(cell) {
@@ -70,9 +129,40 @@ class Emitter {
     this.emit((n > 0 ? '+' : '-').repeat(Math.abs(n)));
   }
 
-  setConst(cell, n, { assumeZero = false } = {}) {
+  setConst(cell, n, { assumeZero = false } = {}, node = null) {
     if (!assumeZero) this.clear(cell);
-    this.add(cell, n);
+    const abs = Math.abs(n);
+    // Encode large constants as a multiply loop: n = ±(a·b + r), emitted as
+    // scratch=a; scratch[ cell±=b ]; cell±=r. ~2·√n chars instead of n.
+    // The loop adds ~√n executed ops per evaluation, which compounds inside
+    // hot loops — so only constants big enough for a clear size win (≥ 60,
+    // e.g. heat targets and say() character codes) are encoded.
+    if (abs < 60) {
+      this.add(cell, n);
+      return;
+    }
+    let best = null;
+    for (let a = 2; a <= Math.ceil(Math.sqrt(abs)) + 2; a++) {
+      const b = Math.round(abs / a);
+      const r = abs - a * b;
+      const chars = a + b + Math.abs(r);
+      if (!best || chars < best.chars) best = { a, b, r, chars };
+    }
+    if (best.chars + 12 >= abs) {
+      this.add(cell, n);
+      return;
+    }
+    const scratch = this.allocRaw(node, cell);
+    if (scratch.dirty) this.clear(scratch.cell);
+    this.add(scratch.cell, best.a);
+    this.moveTo(scratch.cell);
+    this.emit('[');
+    this.add(cell, Math.sign(n) * best.b);
+    this.moveTo(scratch.cell);
+    this.emit('-');
+    this.emit(']');
+    this.free(scratch.cell); // loop exits with scratch = 0
+    this.add(cell, Math.sign(n) * best.r);
   }
 
   /** dst += src; src ends 0. */
@@ -130,6 +220,9 @@ class Emitter {
    * thenZero / elseNonzero are emit callbacks; they may move the pointer
    * anywhere (pure pointer movement over z1 is fine — it doesn't write).
    * x is preserved. All scratch cells end at 0. x must be non-negative.
+   * Callbacks must not allocate or free cells (so no setConst of large
+   * constants, which allocates encoding scratch) — only one branch executes
+   * at runtime, but allocator state changes would leak into both paths.
    */
   ifZeroElse(base, m2, thenZero, elseNonzero) {
     const x = base;
@@ -290,10 +383,175 @@ export function generate(program) {
     return result;
   };
 
+  /** out += (cell != 0) as 0/1; consumes cell. out must... already hold the
+      base value the caller wants (usually 0). */
+  const boolifyInto = (cell, out) => {
+    em.moveTo(cell);
+    em.emit('[');
+    em.emit('[-]');
+    em.add(out, 1);
+    em.moveTo(cell);
+    em.emit(']');
+  };
+
+  /** Returns a fresh cell holding 1 - cell, for cell ∈ {0, 1}; consumes cell. */
+  const invertBool = (cell, node) => {
+    const out = em.alloc(node);
+    em.add(out, 1);
+    em.moveTo(cell);
+    em.emit('[');
+    em.add(out, -1);
+    em.moveTo(cell);
+    em.emit('-');
+    em.emit(']');
+    em.free(cell);
+    return out;
+  };
+
   /**
-   * Comparisons produce 0/1 via a paired-decrement race on copies of the
-   * operands: each round is O(1) thanks to ifZeroElse, so a comparison costs
-   * ~60·min(a,b) executed ops and only terminates for non-negative operands.
+   * result = (value > kk) for constant kk >= 0, via a guarded countdown:
+   * decrement a copy of the value kk times, breaking early if it hits zero;
+   * value > kk iff anything is left. ~35·min(value, kk) executed ops and
+   * ~120 chars vs ~100·min ops and ~500 chars for the general race.
+   * Block layout: [A, m1, z1, z2, m2, K, R].
+   */
+  const genGreaterThanConst = (valueNode, kk, node) => {
+    const blk = em.allocBlock(7, node);
+    const A = blk;
+    const m2 = blk + 4;
+    const K = blk + 5;
+    const R = blk + 6;
+    evalExprInto(valueNode, A);
+    em.setConst(K, kk, { assumeZero: true }, node);
+    em.moveTo(K);
+    em.emit('[');
+    em.ifZeroElse(
+      A,
+      m2,
+      () => {
+        // A exhausted early (value <= budget spent): force the loop to end.
+        em.clear(K);
+        em.add(K, 1);
+      },
+      () => em.add(A, -1)
+    );
+    em.moveTo(K);
+    em.emit('-');
+    em.emit(']');
+    boolifyInto(A, R);
+    em.freeBlock(blk, 6); // A..K all end at 0
+    return R;
+  };
+
+  /**
+   * result = (value == k) for constant k >= 1: same countdown, but with an
+   * underflow flag (value < k). Equal iff the countdown completed (no
+   * underflow) and nothing is left over. Block: [A, m1, z1, z2, m2, K, R, U].
+   */
+  const genEqualsConst = (valueNode, k, node) => {
+    const blk = em.allocBlock(8, node);
+    const A = blk;
+    const m2 = blk + 4;
+    const K = blk + 5;
+    const R = blk + 6;
+    const U = blk + 7;
+    evalExprInto(valueNode, A);
+    em.setConst(K, k, { assumeZero: true }, node);
+    em.moveTo(K);
+    em.emit('[');
+    em.ifZeroElse(
+      A,
+      m2,
+      () => {
+        em.add(U, 1); // underflow: value < k
+        em.clear(K);
+        em.add(K, 1);
+      },
+      () => em.add(A, -1)
+    );
+    em.moveTo(K);
+    em.emit('-');
+    em.emit(']');
+    // R = !U, then zeroed if the copy has leftovers (value > k).
+    em.add(R, 1);
+    em.moveTo(U);
+    em.emit('[');
+    em.add(R, -1);
+    em.moveTo(U);
+    em.emit('-');
+    em.emit(']');
+    em.moveTo(A);
+    em.emit('[');
+    em.emit('[-]');
+    em.clear(R);
+    em.moveTo(A);
+    em.emit(']');
+    em.freeBlock(blk, 6);
+    em.free(U); // consumed to 0
+    return R;
+  };
+
+  const MIRRORED_OP = { '<': '>', '>': '<', '<=': '>=', '>=': '<=', '==': '==', '!=': '!=' };
+
+  /** Comparison where exactly one side is a compile-time constant: value OP k. */
+  const genConstComparison = (op, valueNode, k, node) => {
+    // Language values are non-negative, so negative constants decide statically.
+    if (k < 0) {
+      const cell = em.alloc(node);
+      em.add(cell, op === '>' || op === '>=' || op === '!=' ? 1 : 0);
+      return cell;
+    }
+    if (k === 0) {
+      switch (op) {
+        case '>=': {
+          const cell = em.alloc(node);
+          em.add(cell, 1);
+          return cell;
+        }
+        case '<':
+          return em.alloc(node); // always 0
+        case '>':
+        case '!=': {
+          const v = evalExpr(valueNode);
+          const out = em.alloc(node);
+          boolifyInto(v, out);
+          em.free(v);
+          return out;
+        }
+        case '<=':
+        case '==': {
+          const v = evalExpr(valueNode);
+          const out = em.alloc(node);
+          boolifyInto(v, out);
+          em.free(v);
+          return invertBool(out, node);
+        }
+      }
+    }
+    switch (op) {
+      case '>':
+        return genGreaterThanConst(valueNode, k, node);
+      case '>=':
+        return genGreaterThanConst(valueNode, k - 1, node);
+      case '<':
+        return invertBool(genGreaterThanConst(valueNode, k - 1, node), node);
+      case '<=':
+        return invertBool(genGreaterThanConst(valueNode, k, node), node);
+      case '==':
+        return genEqualsConst(valueNode, k, node);
+      case '!=':
+        return invertBool(genEqualsConst(valueNode, k, node), node);
+      default:
+        throw new CompileError(`Unknown comparison '${op}'`, node.line, node.col);
+    }
+  };
+
+  /**
+   * Comparisons produce 0/1. When one operand is constant, the cheap
+   * countdown forms above apply. Otherwise: a paired-decrement race on copies
+   * of the operands; each round is O(1) thanks to ifZeroElse, so it costs
+   * ~100·min(a,b) executed ops. Either way comparisons only terminate for
+   * non-negative operands.
    *
    * Race variants: lt → 1 iff A exhausts while B is nonzero;
    * le → 1 iff A exhausts first or simultaneously; eq → 1 iff both exhaust
@@ -301,6 +559,16 @@ export function generate(program) {
    * evaluation order is preserved), '!=' inverts eq.
    */
   const genComparison = (node) => {
+    const leftConst = tryConstEval(node.left);
+    const rightConst = tryConstEval(node.right);
+    if (leftConst !== null || rightConst !== null) {
+      // Fully-constant comparisons fold before reaching here.
+      const k = leftConst ?? rightConst;
+      const valueNode = leftConst !== null ? node.right : node.left;
+      const op = leftConst !== null ? MIRRORED_OP[node.op] : node.op;
+      return genConstComparison(op, valueNode, k, node);
+    }
+
     const variant = { '<': 'lt', '<=': 'le', '>': 'lt', '>=': 'le', '==': 'eq', '!=': 'eq' }[node.op];
     const swapped = node.op === '>' || node.op === '>=';
 
@@ -357,18 +625,7 @@ export function generate(program) {
     em.freeBlock(aBlk + 1, 3); // scratch cells are guaranteed 0
     em.freeBlock(bBlk + 1, 3);
 
-    if (node.op === '!=') {
-      const inverted = em.alloc(node);
-      em.add(inverted, 1);
-      em.moveTo(result);
-      em.emit('[');
-      em.add(inverted, -1);
-      em.moveTo(result);
-      em.emit('-');
-      em.emit(']');
-      em.free(result);
-      return inverted;
-    }
+    if (node.op === '!=') return invertBool(result, node);
     return result;
   };
 
@@ -493,7 +750,8 @@ export function generate(program) {
         let current = 0;
         for (const ch of arg.value) {
           const code = ch.codePointAt(0);
-          em.add(cell, code - current);
+          if (current === 0) em.setConst(cell, code, { assumeZero: true }, node);
+          else em.add(cell, code - current);
           em.moveTo(cell);
           em.emit('.');
           current = code;
@@ -546,19 +804,24 @@ export function generate(program) {
         evalExprInto(node.test, test);
         em.moveTo(test);
         em.emit('[');
+        const snapshot = em.snapshotFreeState();
+        em.loopDepth++;
         em.enterScope();
         for (const stmt of node.body) genStatement(stmt);
         em.exitScope();
         em.clear(test);
         evalExprInto(node.test, test);
         em.moveTo(test);
+        em.loopDepth--;
         em.emit(']');
+        em.mergeFreeState(snapshot); // covers the zero-iterations path
         em.free(test); // loop exits with test = 0
         return;
       }
       case 'If': {
         const test = em.alloc(node);
         evalExprInto(node.test, test);
+        const snapshot = em.snapshotFreeState();
         if (!node.alternate) {
           em.moveTo(test);
           em.emit('[');
@@ -590,6 +853,7 @@ export function generate(program) {
           em.emit(']');
           em.free(elseFlag);
         }
+        em.mergeFreeState(snapshot); // covers whichever branch didn't run
         return;
       }
       case 'ExprStatement':

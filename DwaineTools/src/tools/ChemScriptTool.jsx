@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { compile } from '../utils/chemscript';
+import { ChemfuckVM, createBeaker } from '../utils/chemfuck';
 import { useAppStore } from '../store';
 
 const PRESETS = [
@@ -98,6 +99,24 @@ export default function ChemScriptTool() {
   }, [source]);
 
   const result = useMemo(() => compile(source), [source]);
+
+  // Trial-run on a dummy machine (50u water in every reservoir) to estimate
+  // in-game runtime. Actual ticks depend on real reservoir contents.
+  const estimate = useMemo(() => {
+    if (!result.ok || !result.code) return null;
+    try {
+      const vm = new ChemfuckVM({ maxReservoir: 10 });
+      for (let slot = 1; slot <= 10; slot++) {
+        vm.setReservoir(slot, createBeaker({ maxVolume: 100, temperatureC: 20, contents: [{ id: 'water', volume: 50 }] }));
+      }
+      vm.loadProgram(result.code);
+      vm.start();
+      const run = vm.run(20000);
+      return { ticks: run.ticks, exec: vm.exec, halt: run.haltReason };
+    } catch {
+      return null;
+    }
+  }, [result]);
 
   const handleCopy = async () => {
     if (!result.ok || !result.code) return;
@@ -199,8 +218,19 @@ export default function ChemScriptTool() {
                     </TermButton>
                     <span className="text-term-text opacity-70">
                       {result.stats.instructions} instructions · {result.stats.cellsUsed} cells
+                      {estimate && estimate.halt === 'completed' && (
+                        <> · ~{estimate.ticks} ticks, {estimate.exec.toLocaleString()}/50,000 ops*</>
+                      )}
+                      {estimate && estimate.halt !== 'completed' && (
+                        <> · est. run: {estimate.halt} after {estimate.exec.toLocaleString()} ops*</>
+                      )}
                     </span>
                   </div>
+                  {estimate && (
+                    <p className="text-term-text opacity-50 mb-2">
+                      *estimated on a test bench with 50u of water in every reservoir
+                    </p>
+                  )}
                   <pre className="font-mono text-term-text border border-term-border p-3 whitespace-pre-wrap break-all max-h-96 overflow-y-auto">
                     {result.code || '(empty program)'}
                   </pre>

@@ -181,6 +181,35 @@ const TWO_REAGENTS = {
   check('if on equality', cellOf(r, 'y'), 1);
 }
 
+// --- const-comparand comparisons (countdown specialization) ---
+{
+  const ops = { '==': (a, b) => a === b, '!=': (a, b) => a !== b, '<': (a, b) => a < b, '<=': (a, b) => a <= b, '>': (a, b) => a > b, '>=': (a, b) => a >= b };
+  let bad = [];
+  for (const [op, fn] of Object.entries(ops)) {
+    for (let a = 0; a <= 6; a++) {
+      for (let k = 0; k <= 6; k++) {
+        const right = runScript(`let a = ${a}; let r = a ${op} ${k};`);
+        if (cellOf(right, 'r') !== Number(fn(a, k))) bad.push(`${a} ${op} ${k}const → ${cellOf(right, 'r')}`);
+        const left = runScript(`let a = ${a}; let r = ${k} ${op} a;`);
+        if (cellOf(left, 'r') !== Number(fn(k, a))) bad.push(`${k}const ${op} ${a} → ${cellOf(left, 'r')}`);
+      }
+    }
+  }
+  check('const-comparand fuzz 0..6 both orientations (588 cases)', bad, []);
+}
+{
+  let bad = [];
+  for (const [op, expected] of [['>', 1], ['>=', 1], ['!=', 1], ['<', 0], ['<=', 0], ['==', 0]]) {
+    const r = runScript(`let a = 3; let r = a ${op} -2;`);
+    if (cellOf(r, 'r') !== expected) bad.push(`a ${op} -2 → ${cellOf(r, 'r')}`);
+  }
+  check('negative-constant comparisons fold statically', bad, []);
+}
+{
+  const raw = runScript('let a = 200; let r = a > 150;');
+  check('large const comparison', cellOf(raw, 'r'), 1);
+}
+
 // --- M3: multiplication ---
 {
   const r = runScript('let a = 3; let b = 4; let p = a * b;');
@@ -211,6 +240,52 @@ const TWO_REAGENTS = {
   check('comparison-driven transfer loop: res2', Math.round(r.vm.reservoirs[2].contents[0].volume), 10);
   check('comparison-driven loop completes', r.run.haltReason, 'completed');
   console.log(`  (exec used: ${r.vm.exec} / 50000)`);
+}
+
+// --- optimizer preserves behavior (raw vs peephole-optimized output) ---
+{
+  const { parse } = await import('../src/utils/chemscript/index.js');
+  const { optimize } = await import('../src/utils/chemscript/index.js');
+  const { generate } = await import('../src/utils/chemscript/codegen.js');
+  const corpus = [
+    'let x = 5; let y = 0; while (x) { y = y + 2; x = x - 1; }',
+    'while (volume(1) - 40) { transfer(1, 2, 1); } say("OK");',
+    'let a = 12; let b = 9; let p = a * b; if (p > 100) { say("BIG"); } else { say("SMALL"); }',
+    'heat(1, 100); pill(1, 5); let t = temp(1);',
+  ];
+  let bad = [];
+  for (const source of corpus) {
+    const raw = generate(parse(source)).code;
+    const opt = optimize(raw);
+    const runOn = (code) => {
+      const vm = new ChemfuckVM({ maxReservoir: 10 });
+      vm.setReservoir(1, createBeaker({ temperatureC: 20, contents: [{ id: 'water', volume: 50 }] }));
+      vm.setReservoir(2, createBeaker({ contents: [] }));
+      vm.loadProgram(code);
+      vm.start();
+      const result = vm.run();
+      return JSON.stringify({
+        data: vm.data,
+        say: result.sayOutput,
+        res: vm.reservoirs.map((b) => (b ? { contents: b.contents, temperature: b.temperature } : null)),
+        artifacts: vm.artifacts,
+        halt: result.haltReason,
+      });
+    };
+    if (runOn(raw) !== runOn(opt)) bad.push(source.slice(0, 40));
+  }
+  check('peephole pass preserves behavior (memory, output, reservoirs)', bad, []);
+}
+
+// --- large constants are multiply-encoded ---
+{
+  const r = runScript('let x = 100;');
+  check('encoded constant value', cellOf(r, 'x'), 100);
+  check('encoded constant is short', r.compiled.code.length < 50, true);
+}
+{
+  const r = runScript('let x = 0 - 0 + 251;');
+  check('encoded odd constant value', cellOf(r, 'x'), 251);
 }
 
 // --- errors ---

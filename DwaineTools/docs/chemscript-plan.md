@@ -112,5 +112,28 @@ cells via the returned symbol table.
    line/col, instruction/cell stats, variable→cell map, presets, language
    reference, and a "Send to Emulator" button (writes `dwaine_chemfuck_code`,
    switches tool; the emulator picks it up on mount).
-5. **Later:** inlined functions, constant folding everywhere + peephole size
-   optimization, division/modulo, source-map stepping inside the emulator UI.
+5. **Optimization pass (June 2026)** ✅:
+   - *Const-comparand comparisons:* `value OP constant` compiles to a guarded
+     countdown (~35·min ops, ~120 chars) instead of the general race
+     (~100·min ops, ~500 chars). Negative constants decide statically;
+     `OP 0` reduces to boolify/invert.
+   - *Lazy dirty-cell clearing:* freed cells defer their `[-]` until actually
+     reallocated. Eager inside loop bodies (re-executing code must not see the
+     previous iteration's garbage) with conservative dirty-merging around
+     if/while for the skipped-branch path.
+   - *Multiply-encoded constants:* `setConst` emits n ≥ 60 as a `√n × √n`
+     loop (~2·√n chars). Threshold is deliberately high: encoding costs ~√n
+     extra executed ops per evaluation, which compounds in hot loops.
+   - *Peephole pass* (`optimize()` in index.js): cancels `><`, `+-`, and
+     redundant clears. Measured at 0% on this compiler's output (static
+     pointer tracking never emits cancellable pairs) — kept for hand-written
+     input.
+   - *Tick estimate in the tool:* compiled output is trial-run on a dummy
+     bench (50u water everywhere) to show ~ticks and ops against the 50k cap.
+   - Benchmark: `node DwaineTools/scripts/chemscript-bench.mjs`. Net effect vs
+     pre-optimization: comparison-heavy programs ~45-55% smaller and ~50%
+     fewer ops/ticks; `say` ~40% fewer ticks; worst regression +3% exec on
+     heat-heavy code (accepted for the 54% size win).
+
+6. **Later:** inlined functions, division/modulo, source-map stepping inside
+   the emulator UI.
