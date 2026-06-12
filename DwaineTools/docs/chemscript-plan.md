@@ -130,6 +130,12 @@ cells via the returned symbol table.
      input.
    - *Tick estimate in the tool:* compiled output is trial-run on a dummy
      bench (50u water everywhere) to show ~ticks and ops against the 50k cap.
+   - *Copy elision:* `let` binds the variable directly to the cell its
+     initializer evaluated into (always safe at the binding point), and
+     straight-line assignments rebind instead of draining unit-by-unit.
+     Rebinding is disabled inside loop bodies and branches — earlier emitted
+     code would still read the old cell on re-execution or the skipped path.
+     (~20% fewer ops on let/assign-heavy programs.)
    - Benchmark: `node DwaineTools/scripts/chemscript-bench.mjs`. Net effect vs
      pre-optimization: comparison-heavy programs ~45-55% smaller and ~50%
      fewer ops/ticks; `say` ~40% fewer ticks; worst regression +3% exec on

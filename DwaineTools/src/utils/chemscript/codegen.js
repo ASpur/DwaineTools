@@ -28,6 +28,7 @@ class Emitter {
     this.nextCell = 0;
     this.freeList = []; // entries {cell, dirty}; dirty = runtime value may be nonzero
     this.loopDepth = 0; // > 0 while emitting code inside a loop body
+    this.branchDepth = 0; // > 0 while emitting code inside an if/else branch
     this.scopes = [new Map()];
     this.globalSymbols = {};
   }
@@ -263,16 +264,35 @@ class Emitter {
   }
 
   declare(name, node) {
+    return this.declareAs(name, this.alloc(node), node);
+  }
+
+  /** Bind a variable directly to an existing cell (copy elision for let). */
+  declareAs(name, cell, node) {
     const scope = this.scopes[this.scopes.length - 1];
     if (scope.has(name)) {
       throw new CompileError(`Variable '${name}' already declared in this scope`, node.line, node.col);
     }
-    const cell = this.alloc(node);
     scope.set(name, cell);
-    if (this.scopes.length === 1 && !(name in this.globalSymbols)) {
+    if (this.scopes.length === 1) {
       this.globalSymbols[name] = cell;
     }
     return cell;
+  }
+
+  /**
+   * Rebind a variable to a new cell (copy elision for assignment). Only
+   * valid in straight-line code: code emitted earlier in a loop body or
+   * branch still reads the old cell when it re-executes or is skipped.
+   */
+  rebind(name, cell) {
+    for (let i = this.scopes.length - 1; i >= 0; i--) {
+      if (this.scopes[i].has(name)) {
+        this.scopes[i].set(name, cell);
+        if (i === 0) this.globalSymbols[name] = cell;
+        return;
+      }
+    }
   }
 
   resolve(name, node) {
@@ -779,24 +799,30 @@ export function generate(program) {
         const constant = tryConstEval(node.init);
         if (constant !== null) {
           const cell = em.declare(node.name, node);
-          em.setConst(cell, constant, { assumeZero: true });
+          em.setConst(cell, constant, { assumeZero: true }, node);
           return;
         }
         // Evaluate the initializer before declaring, so `let x = x + 1;`
         // resolves x to an outer scope (or errors) instead of reading 0.
+        // The variable then binds directly to the result cell (copy elision —
+        // always safe at the binding point, drains nothing).
         const tmp = evalExpr(node.init);
-        const cell = em.declare(node.name, node);
-        em.drainInto(tmp, cell);
-        em.free(tmp);
+        em.declareAs(node.name, tmp, node);
         return;
       }
       case 'Assign': {
-        // Evaluate before clearing the destination so `x = x + 1;` works.
+        // Evaluate before touching the destination so `x = x + 1;` works.
         const cell = em.resolve(node.name, node);
         const tmp = evalExpr(node.value);
-        em.clear(cell);
-        em.drainInto(tmp, cell);
-        em.free(tmp);
+        if (em.loopDepth === 0 && em.branchDepth === 0) {
+          // Straight-line code: rebind instead of draining (copy elision).
+          em.rebind(node.name, tmp);
+          em.freeDirty(cell);
+        } else {
+          em.clear(cell);
+          em.drainInto(tmp, cell);
+          em.free(tmp);
+        }
         return;
       }
       case 'While': {
@@ -822,6 +848,7 @@ export function generate(program) {
         const test = em.alloc(node);
         evalExprInto(node.test, test);
         const snapshot = em.snapshotFreeState();
+        em.branchDepth++;
         if (!node.alternate) {
           em.moveTo(test);
           em.emit('[');
@@ -853,6 +880,7 @@ export function generate(program) {
           em.emit(']');
           em.free(elseFlag);
         }
+        em.branchDepth--;
         em.mergeFreeState(snapshot); // covers whichever branch didn't run
         return;
       }

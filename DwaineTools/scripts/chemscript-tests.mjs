@@ -93,6 +93,20 @@ const cellOf = ({ vm, compiled }, name) => vm.data[compiled.symbols[name]];
   check('block scoping: outer x untouched', cellOf(r, 'x'), 1);
 }
 
+// --- copy elision regressions ---
+{
+  // top-level assignment rebinds the variable; later loop code must read the new cell
+  const r = runScript('let x = 5; x = x + 1; let y = 0; while (x) { y = y + 1; x = x - 1; }');
+  check('rebound variable feeds a loop', cellOf(r, 'y'), 6);
+}
+{
+  // assignment inside a branch must NOT rebind (skipped-path reads old cell)
+  const r = runScript('let a = 1; let hit = 0; if (a) { a = a + 9; } hit = a;');
+  check('branch assignment keeps binding: taken', cellOf(r, 'hit'), 10);
+  const r2 = runScript('let z = 0; let a = 7; if (z) { a = a + 1; } let out = a + 0;');
+  check('branch assignment keeps binding: skipped', cellOf(r2, 'out'), 7);
+}
+
 // --- say ---
 {
   const r = runScript('say("HELLO");');
