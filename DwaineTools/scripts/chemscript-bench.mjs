@@ -13,6 +13,7 @@ const CORPUS = [
   ['sensor branch', 'if (temp(1) >= 100) { say("HOT"); } else { say("COLD"); }'],
   ['arithmetic demo', 'let a = 6; let b = 7; let p = a * b; let big = p > 40; if (big) { say("BIG"); }'],
   ['runtime multiply 12x9', 'let a = 12; let b = 9; let p = a * b;'],
+  ['multiply by const', 'let a = 12; let p = a * 9;'],
   ['say sentence', 'say("THE MACHINE IS WORKING AS INTENDED");'],
 ];
 

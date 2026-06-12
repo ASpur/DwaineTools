@@ -136,6 +136,13 @@ cells via the returned symbol table.
      Rebinding is disabled inside loop bodies and branches — earlier emitted
      code would still read the old cell on re-execution or the skipped path.
      (~20% fewer ops on let/assign-heavy programs.)
+   - *Const-side multiplication:* `value * k` is one loop over the value
+     emitting k '+'s per iteration (~1 op per product unit; 12×9 drops from
+     2418 to 387 ops). Note multiply-by-doubling does NOT help on unary
+     cells — doubling requires copying, and the doublings sum to O(a·b)
+     anyway; only the constant factor is attackable. var×var stays repeated
+     addition with proximity-aware scratch (copyInto allocates near dst;
+     evalExprInto copies variables directly instead of via a temp).
    - Benchmark: `node DwaineTools/scripts/chemscript-bench.mjs`. Net effect vs
      pre-optimization: comparison-heavy programs ~45-55% smaller and ~50%
      fewer ops/ticks; `say` ~40% fewer ticks; worst regression +3% exec on

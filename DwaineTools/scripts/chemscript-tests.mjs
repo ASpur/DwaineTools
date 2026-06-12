@@ -244,6 +244,23 @@ const TWO_REAGENTS = {
   const r = runScript('let a = 3; let r = 2 + a * 4;');
   check('precedence: * binds tighter than +', cellOf(r, 'r'), 14);
 }
+{
+  // const-side multiply specialization, both orientations, vs JS semantics
+  let bad = [];
+  for (let a = 0; a <= 6; a++) {
+    for (let k = 0; k <= 6; k++) {
+      const right = runScript(`let a = ${a}; let p = a * ${k};`);
+      if (cellOf(right, 'p') !== a * k) bad.push(`${a} * ${k}const → ${cellOf(right, 'p')}`);
+      const left = runScript(`let a = ${a}; let p = ${k} * a;`);
+      if (cellOf(left, 'p') !== k * a) bad.push(`${k}const * ${a} → ${cellOf(left, 'p')}`);
+    }
+  }
+  check('const-side multiply fuzz 0..6 both orientations (98 cases)', bad, []);
+}
+{
+  const r = runScript('let v = volume(1) * 2;', { reservoirs: { 1: { contents: [{ id: 'water', volume: 21 }] } } });
+  check('read times const', cellOf(r, 'v'), 42);
+}
 
 // --- M3: comparisons driving chem logic ---
 {

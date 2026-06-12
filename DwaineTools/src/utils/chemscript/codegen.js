@@ -176,9 +176,11 @@ class Emitter {
     this.emit(']');
   }
 
-  /** dst += src, src preserved (via a scratch cell). */
+  /** dst += src, src preserved (via a scratch cell allocated near dst). */
   copyInto(src, dst, node) {
-    const tmp = this.alloc(node);
+    const picked = this.allocRaw(node, dst);
+    if (picked.dirty) this.clear(picked.cell);
+    const tmp = picked.cell;
     this.moveTo(src);
     this.emit('[-');
     this.moveTo(dst);
@@ -378,20 +380,60 @@ export function generate(program) {
       evalReadBuiltinInto(node, dst);
       return;
     }
+    if (node.type === 'Var') {
+      // Copy the variable straight into dst instead of via a temp (which
+      // would move the whole value twice).
+      em.copyInto(em.resolve(node.name, node), dst, node);
+      return;
+    }
     const tmp = evalExpr(node);
     em.drainInto(tmp, dst);
     em.free(tmp);
   };
 
   /**
-   * result = left * right by repeated addition: O(left · right) executed ops,
-   * so keep non-constant products small (see docs). Constant products never
-   * get here — tryConstEval folds them.
+   * Multiplication. Unary cells mean any product executes at least a·b
+   * increments — the optimizations here attack the constant factor:
+   * - value × constant k: one loop over the value emitting k '+'s per
+   *   iteration (~1 op per product unit).
+   * - var × var: repeated addition in a tight 4-cell block [L, B, R, T] so
+   *   inner-loop pointer hops are 1-2 cells (~16 ops per product unit).
+   * Fully-constant products never get here — tryConstEval folds them.
    */
   const genMultiply = (node) => {
+    const leftConst = tryConstEval(node.left);
+    const rightConst = tryConstEval(node.right);
+    if (leftConst !== null || rightConst !== null) {
+      const k = leftConst ?? rightConst;
+      const valueNode = leftConst !== null ? node.right : node.left;
+      if (k === 0) {
+        // Still evaluate for read side effects (e.g. invalid-reservoir beeps).
+        const v = evalExpr(valueNode);
+        em.freeDirty(v);
+        return em.alloc(node);
+      }
+      if (k === 1) return evalExpr(valueNode);
+      const v = evalExpr(valueNode);
+      const { cell: result, dirty } = em.allocRaw(node, v);
+      if (dirty) em.clear(result);
+      em.moveTo(v);
+      em.emit('[');
+      em.add(v, -1);
+      em.add(result, k);
+      em.moveTo(v);
+      em.emit(']');
+      em.free(v); // consumed to 0
+      return result;
+    }
+
+    // var × var: repeated addition. No reserved block here — freelist/bump
+    // allocation already lands these cells adjacent, and forcing a block
+    // pushes the copy scratch further away (measured slower).
     const left = evalExpr(node.left);
     const right = evalExpr(node.right);
-    const result = em.alloc(node);
+    const picked = em.allocRaw(node, right);
+    if (picked.dirty) em.clear(picked.cell);
+    const result = picked.cell;
     em.moveTo(left);
     em.emit('[');
     em.add(left, -1);
