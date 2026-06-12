@@ -273,6 +273,50 @@ const TWO_REAGENTS = {
   console.log(`  (exec used: ${r.vm.exec} / 50000)`);
 }
 
+// --- known-value tracking (delta writes instead of clears) ---
+{
+  // const-arg chem calls in a loop: register cells delta-chain and the
+  // back-edge reconciles them; results must be exact
+  const r = runScript('let n = 3; while (n) { transfer(1, 2, 2); n = n - 1; }', {
+    reservoirs: { 1: { contents: [{ id: 'water', volume: 50 }] }, 2: { contents: [] } },
+  });
+  check('loop transfers: res2 exact', Math.round(r.vm.reservoirs[2].contents[0].volume), 6);
+  check('loop transfers: res1 exact', Math.round(r.vm.reservoirs[1].contents[0].volume), 44);
+}
+{
+  // two chem calls per iteration with different constants
+  const r = runScript('let n = 2; while (n) { transfer(1, 2, 3); vial(1, 5); n = n - 1; }', {
+    reservoirs: { 1: { contents: [{ id: 'water', volume: 50 }] }, 2: { contents: [] } },
+  });
+  check('mixed loop: res2', Math.round(r.vm.reservoirs[2].contents[0].volume), 6);
+  check('mixed loop: vial count', r.vm.artifacts.filter((a) => a.kind === 'vial').length, 2);
+  check('mixed loop: vial volume', r.vm.artifacts[0].contents[0].volume, 5);
+}
+{
+  // if/else with different constants, then a post-if transfer: the post-if
+  // code must not delta-encode against a value only one branch produced
+  const taken = runScript('let a = 1; if (a) { transfer(1, 2, 5); } else { transfer(1, 2, 7); } transfer(1, 2, 1);', {
+    reservoirs: { 1: { contents: [{ id: 'water', volume: 50 }] }, 2: { contents: [] } },
+  });
+  check('branch consts then post-if: taken path', Math.round(taken.vm.reservoirs[2].contents[0].volume), 6);
+  const skipped = runScript('let a = 0; if (a) { transfer(1, 2, 5); } else { transfer(1, 2, 7); } transfer(1, 2, 1);', {
+    reservoirs: { 1: { contents: [{ id: 'water', volume: 50 }] }, 2: { contents: [] } },
+  });
+  check('branch consts then post-if: else path', Math.round(skipped.vm.reservoirs[2].contents[0].volume), 8);
+}
+{
+  // stale known value (say leaves char code 65) followed by a loop reusing the cell
+  const r = runScript('say("A"); let n = 2; while (n) { transfer(1, 2, 1); n = n - 1; }', {
+    reservoirs: { 1: { contents: [{ id: 'water', volume: 50 }] }, 2: { contents: [] } },
+  });
+  check('stale known before loop: say', r.run.sayOutput, 'A');
+  check('stale known before loop: res2', Math.round(r.vm.reservoirs[2].contents[0].volume), 2);
+}
+{
+  const r = runScript('say("AB"); say("CD");');
+  check('consecutive says delta-chain', r.run.sayOutput, 'ABCD');
+}
+
 // --- optimizer preserves behavior (raw vs peephole-optimized output) ---
 {
   const { parse } = await import('../src/utils/chemscript/index.js');

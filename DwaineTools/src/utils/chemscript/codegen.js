@@ -4,9 +4,11 @@
  * Core invariants:
  * - The data pointer position is statically known at all times; moveTo()
  *   emits the > / < runs between fixed cell addresses.
- * - Cells obtained from alloc() are guaranteed to hold 0 at runtime. free()
- *   returns a cell to the pool; freeing a possibly-nonzero cell goes through
- *   freeDirty(), which emits a clear ([-]) first.
+ * - Cells obtained from alloc() are guaranteed to hold 0 at runtime. Freed
+ *   cells are NOT cleared: the free list tracks each cell's runtime value
+ *   (0 / known constant / unknown), reallocation emits the cheapest write
+ *   (nothing, a +/- delta, or a clear), and loop back-edges reconcile any
+ *   freed cells to the values the body's allocations assumed.
  * - Language values are non-negative integers. Clears and zero-test loops
  *   diverge on negative cells; going negative is documented UB.
  *
@@ -45,18 +47,22 @@ class Emitter {
   }
 
   /**
-   * Take a cell from the free list (preferring clean cells, then proximity to
-   * `near`) or fresh from the bump. Returns { cell, dirty } without emitting
-   * a clear — callers that need a guaranteed-zero cell use alloc().
+   * Take a cell from the free list or fresh from the bump. Entries carry the
+   * cell's runtime value: 0 (clean), a number (a previous user left it behind
+   * and knew it statically — see freeKnown), or null (unknown). Preference:
+   * clean, then known (cheap delta writes), then unknown; proximity to `near`
+   * breaks ties. Emits nothing — callers that need a specific value use
+   * alloc() or writeConst().
    */
   allocRaw(node, near = null) {
     if (this.freeList.length > 0) {
+      const rank = (v) => (v === 0 ? 0 : v !== null ? 1 : 2);
       let best = 0;
       for (let i = 1; i < this.freeList.length; i++) {
         const candidate = this.freeList[i];
         const current = this.freeList[best];
-        if (candidate.dirty !== current.dirty) {
-          if (!candidate.dirty) best = i;
+        if (rank(candidate.value) !== rank(current.value)) {
+          if (rank(candidate.value) < rank(current.value)) best = i;
         } else if (near !== null && Math.abs(candidate.cell - near) < Math.abs(current.cell - near)) {
           best = i;
         }
@@ -66,56 +72,109 @@ class Emitter {
     if (this.nextCell >= RAM_SIZE) {
       throw new CompileError('Out of tape memory (1024 cells)', node?.line ?? 0, node?.col ?? 0);
     }
-    return { cell: this.nextCell++, dirty: false };
+    return { cell: this.nextCell++, value: 0 };
   }
 
-  alloc(node) {
-    const { cell, dirty } = this.allocRaw(node);
-    if (dirty) this.clear(cell);
+  alloc(node, near = null) {
+    const { cell, value } = this.allocRaw(node, near);
+    this.writeConst(cell, value, 0);
     return cell;
   }
 
+  /**
+   * Emit code taking a cell from a known prior value (number, or null =
+   * unknown) to a target constant: nothing if equal, a +/- delta when the
+   * prior value is known and close, otherwise clear + (possibly
+   * multiply-encoded) constant.
+   */
+  writeConst(cell, current, target) {
+    if (current === target) return;
+    if (current !== null && Math.abs(target - current) <= 30) {
+      this.add(cell, target - current);
+      return;
+    }
+    if (current !== 0) this.clear(cell);
+    this.setConst(cell, target, { assumeZero: true });
+  }
+
   free(cell) {
-    this.freeList.push({ cell, dirty: false });
+    this.freeList.push({ cell, value: 0 });
+  }
+
+  /** Free a cell whose runtime value is statically known, enabling cheap
+      delta writes on reuse (e.g. register-argument constants). */
+  freeKnown(cell, value) {
+    this.freeList.push({ cell, value: Number.isInteger(value) ? value : null });
   }
 
   /**
-   * Free a cell whose runtime value may be nonzero. Outside loops the clear
-   * is deferred until (and unless) the cell is reallocated. Inside a loop
-   * body the clear must be emitted eagerly: this code re-executes, so a
-   * deferred clear would leave iteration N's garbage in place for the same
-   * static code at iteration N+1.
+   * Free a cell whose runtime value is unknown. No clear is emitted — the
+   * value stays behind until (and unless) the cell is reallocated; loop
+   * back-edges are squared up by reconcileFreeState().
    */
   freeDirty(cell) {
-    if (this.loopDepth > 0) {
-      this.clear(cell);
-      this.free(cell);
-    } else {
-      this.freeList.push({ cell, dirty: true });
-    }
+    this.freeList.push({ cell, value: null });
   }
 
-  /** Snapshot free-list state before a conditionally-executed region. */
+  /** Snapshot free-list values before a conditionally-executed region. */
   snapshotFreeState() {
     return {
-      dirty: new Map(this.freeList.map((entry) => [entry.cell, entry.dirty])),
+      values: new Map(this.freeList.map((entry) => [entry.cell, entry.value])),
       watermark: this.nextCell,
     };
   }
 
+  /** The value a cell holds on the runtime path that skipped a region:
+      its snapshot value, 0 if bump-fresh inside the region, else unknown. */
+  startValueFor(snapshot, cell) {
+    if (snapshot.values.has(cell)) return snapshot.values.get(cell);
+    return cell >= snapshot.watermark ? 0 : null;
+  }
+
+  /** Degrade nonzero known values to unknown. Used at loop entry so in-body
+      reallocations don't delta-encode against stale pre-loop values that the
+      back-edge would then have to restore expensively every iteration. */
+  degradeFreeValues() {
+    for (const entry of this.freeList) {
+      if (entry.value !== 0) entry.value = null;
+    }
+  }
+
   /**
-   * Conservative merge after a conditionally-executed region (if-branch or
-   * zero-iteration loop): on the runtime path that skipped the region, cells
-   * keep their pre-region values. So anything dirty before stays dirty, and
-   * any cell that was live before but freed inside is dirty too. Cells fresh
-   * from the bump inside the region were 0 beforehand, so their body marking
-   * stands.
+   * Loop bodies re-execute: any cell an in-body allocation found at value V
+   * must be back at V when the body loops around. Call just before the
+   * closing ] with the snapshot taken just after the opening [ (and after
+   * degradeFreeValues). Cells whose start value was unknown need nothing —
+   * their in-body allocations emitted clears.
+   */
+  reconcileFreeState(snapshot) {
+    for (const entry of this.freeList) {
+      const start = this.startValueFor(snapshot, entry.cell);
+      if (start === null) {
+        entry.value = null;
+        continue;
+      }
+      if (entry.value !== start) this.writeConst(entry.cell, entry.value, start);
+      entry.value = start;
+    }
+  }
+
+  /** Restore free-list values to a snapshot's view (for emitting an else
+      branch, whose runtime path starts from the pre-if state). */
+  restoreFreeValues(snapshot) {
+    for (const entry of this.freeList) {
+      entry.value = this.startValueFor(snapshot, entry.cell);
+    }
+  }
+
+  /**
+   * Conservative merge after a conditionally-executed region: a cell keeps
+   * its tracked value only if both runtime paths agree on it, else unknown.
    */
   mergeFreeState(snapshot) {
     for (const entry of this.freeList) {
-      const before = snapshot.dirty.get(entry.cell);
-      if (before === true) entry.dirty = true;
-      else if (before === undefined && entry.cell < snapshot.watermark) entry.dirty = true;
+      const other = this.startValueFor(snapshot, entry.cell);
+      if (entry.value !== other) entry.value = null;
     }
   }
 
@@ -154,7 +213,7 @@ class Emitter {
       return;
     }
     const scratch = this.allocRaw(node, cell);
-    if (scratch.dirty) this.clear(scratch.cell);
+    this.writeConst(scratch.cell, scratch.value, 0);
     this.add(scratch.cell, best.a);
     this.moveTo(scratch.cell);
     this.emit('[');
@@ -178,9 +237,7 @@ class Emitter {
 
   /** dst += src, src preserved (via a scratch cell allocated near dst). */
   copyInto(src, dst, node) {
-    const picked = this.allocRaw(node, dst);
-    if (picked.dirty) this.clear(picked.cell);
-    const tmp = picked.cell;
+    const tmp = this.alloc(node, dst);
     this.moveTo(src);
     this.emit('[-');
     this.moveTo(dst);
@@ -337,9 +394,9 @@ export function generate(program) {
   const evalExpr = (node) => {
     const constant = tryConstEval(node);
     if (constant !== null) {
-      const cell = em.alloc(node);
-      em.setConst(cell, constant, { assumeZero: true });
-      return cell;
+      const entry = em.allocRaw(node);
+      em.writeConst(entry.cell, entry.value, constant);
+      return entry.cell;
     }
 
     switch (node.type) {
@@ -414,8 +471,7 @@ export function generate(program) {
       }
       if (k === 1) return evalExpr(valueNode);
       const v = evalExpr(valueNode);
-      const { cell: result, dirty } = em.allocRaw(node, v);
-      if (dirty) em.clear(result);
+      const result = em.alloc(node, v);
       em.moveTo(v);
       em.emit('[');
       em.add(v, -1);
@@ -431,9 +487,7 @@ export function generate(program) {
     // pushes the copy scratch further away (measured slower).
     const left = evalExpr(node.left);
     const right = evalExpr(node.right);
-    const picked = em.allocRaw(node, right);
-    if (picked.dirty) em.clear(picked.cell);
-    const result = picked.cell;
+    const result = em.alloc(node, right);
     em.moveTo(left);
     em.emit('[');
     em.add(left, -1);
@@ -705,6 +759,14 @@ export function generate(program) {
     return cell;
   };
 
+  /** Free an argument cell, recording its value when the argument was a
+      constant (register loads don't consume the cell). */
+  const freeArg = (cell, argNode) => {
+    const k = tryConstEval(argNode);
+    if (k !== null) em.freeKnown(cell, k);
+    else em.freeDirty(cell);
+  };
+
   /** Emit a read builtin so its result lands in dst (which must hold 0). */
   const evalReadBuiltinInto = (node, dst) => {
     if (node.callee in READ_BUILTINS) {
@@ -719,7 +781,7 @@ export function generate(program) {
     if (node.callee === 'volumeOf') {
       expectArgs(node, 2);
       const res = loadRegister(node.args[0], '}');
-      em.freeDirty(res);
+      freeArg(res, node.args[0]);
       evalExprInto(node.args[1], dst); // reagent index
       em.moveTo(dst); // V reads the index from the current cell
       em.emit('V');
@@ -737,16 +799,16 @@ export function generate(program) {
 
   const genTransfer = (node, srcArg, tgtArg, amtArg, indexArg = null) => {
     const src = loadRegister(srcArg, '}');
-    em.freeDirty(src);
+    freeArg(src, srcArg);
     const tgt = loadRegister(tgtArg, ')');
-    em.freeDirty(tgt);
+    freeArg(tgt, tgtArg);
     const amt = loadRegister(amtArg, "'");
-    em.freeDirty(amt);
+    freeArg(amt, amtArg);
     if (indexArg) {
       const idx = evalExpr(indexArg);
       em.moveTo(idx); // # reads the reagent index from the current cell
       em.emit('#');
-      em.freeDirty(idx);
+      freeArg(idx, indexArg);
     } else {
       em.emit('@');
     }
@@ -775,14 +837,14 @@ export function generate(program) {
         // support for constant arguments; runtime values must be >= 0 °C.
         expectArgs(node, 2);
         const res = loadRegister(node.args[0], '}');
-        em.freeDirty(res);
+        freeArg(res, node.args[0]);
         const degC = tryConstEval(node.args[1]);
         if (degC !== null && degC < 0) {
           const tx = em.alloc(node);
           em.setConst(tx, -degC, { assumeZero: true });
           em.moveTo(tx);
           em.emit(')');
-          em.freeDirty(tx);
+          em.freeKnown(tx, -degC);
           const ax = em.alloc(node);
           em.moveTo(ax);
           em.emit("'"); // ax = 0
@@ -793,7 +855,7 @@ export function generate(program) {
           em.emit(')'); // tx = 0
           em.free(tx);
           const ax = loadRegister(node.args[1], "'");
-          em.freeDirty(ax);
+          freeArg(ax, node.args[1]);
         }
         em.emit('$');
         return;
@@ -818,7 +880,8 @@ export function generate(program) {
           em.emit('.');
           current = code;
         }
-        em.freeDirty(cell);
+        if (current === 0) em.free(cell);
+        else em.freeKnown(cell, current); // cell holds the last character code
         return;
       }
       case 'temp':
@@ -840,8 +903,9 @@ export function generate(program) {
       case 'Let': {
         const constant = tryConstEval(node.init);
         if (constant !== null) {
-          const cell = em.declare(node.name, node);
-          em.setConst(cell, constant, { assumeZero: true }, node);
+          const entry = em.allocRaw(node);
+          em.writeConst(entry.cell, entry.value, constant);
+          em.declareAs(node.name, entry.cell, node);
           return;
         }
         // Evaluate the initializer before declaring, so `let x = x + 1;`
@@ -872,6 +936,7 @@ export function generate(program) {
         evalExprInto(node.test, test);
         em.moveTo(test);
         em.emit('[');
+        em.degradeFreeValues(); // don't delta against stale pre-loop values
         const snapshot = em.snapshotFreeState();
         em.loopDepth++;
         em.enterScope();
@@ -879,6 +944,7 @@ export function generate(program) {
         em.exitScope();
         em.clear(test);
         evalExprInto(node.test, test);
+        em.reconcileFreeState(snapshot); // square up freed cells for the back-edge
         em.moveTo(test);
         em.loopDepth--;
         em.emit(']');
@@ -912,6 +978,10 @@ export function generate(program) {
           em.clear(test);
           em.emit(']');
           em.free(test);
+          // The else path skipped the then-branch at runtime, so its code
+          // must be emitted against the pre-if view of freed-cell values.
+          const thenState = em.snapshotFreeState();
+          em.restoreFreeValues(snapshot);
           em.moveTo(elseFlag);
           em.emit('[');
           em.enterScope();
@@ -921,9 +991,12 @@ export function generate(program) {
           em.moveTo(elseFlag);
           em.emit(']');
           em.free(elseFlag);
+          em.branchDepth--;
+          em.mergeFreeState(thenState); // keep values only where both branches agree
+          return;
         }
         em.branchDepth--;
-        em.mergeFreeState(snapshot); // covers whichever branch didn't run
+        em.mergeFreeState(snapshot); // covers the skipped-branch path
         return;
       }
       case 'ExprStatement':

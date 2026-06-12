@@ -136,6 +136,15 @@ cells via the returned symbol table.
      Rebinding is disabled inside loop bodies and branches — earlier emitted
      code would still read the old cell on re-execution or the skipped path.
      (~20% fewer ops on let/assign-heavy programs.)
+   - *Known-value tracking (no needless clears):* freed cells are never
+     cleared; the free list records each cell's runtime value (0 / known
+     constant / unknown) and reallocation emits the cheapest write — nothing,
+     a ± delta, or a clear. Register-argument constants chain through loops
+     (`transfer(1,2,1)` per iteration: `+`, `+`, `-` instead of three
+     clear+set pairs). Loop back-edges reconcile freed cells to the values
+     in-body allocations assumed (after degrading stale pre-loop knowns);
+     if/else emits the else branch against the pre-if view and keeps values
+     only where both paths agree. Vial-loop benchmark: −33% ticks.
    - *Const-side multiplication:* `value * k` is one loop over the value
      emitting k '+'s per iteration (~1 op per product unit; 12×9 drops from
      2418 to 387 ops). Note multiply-by-doubling does NOT help on unary
