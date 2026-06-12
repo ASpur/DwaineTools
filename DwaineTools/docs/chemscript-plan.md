@@ -107,8 +107,10 @@ cells via the returned symbol table.
      runtime values small (≲ 40×40). Constant products fold at compile time.
    - Comparisons/multiplies only terminate for **non-negative operands**
      (negative cells diverge under zero-test loops; beware negative `temp()`).
-4. **M4 — the tool:** separate sidebar entry; source left / ChemFuck right,
-   compile-on-change, errors with line/col, instruction stats, "send to
-   emulator" button (writes `dwaine_chemfuck_code`, switches tool).
+4. **M4 — the tool** ✅: `src/tools/ChemScriptTool.jsx` — separate sidebar
+   entry; source left / ChemFuck right, compile-on-change, errors with
+   line/col, instruction/cell stats, variable→cell map, presets, language
+   reference, and a "Send to Emulator" button (writes `dwaine_chemfuck_code`,
+   switches tool; the emulator picks it up on mount).
 5. **Later:** inlined functions, constant folding everywhere + peephole size
    optimization, division/modulo, source-map stepping inside the emulator UI.

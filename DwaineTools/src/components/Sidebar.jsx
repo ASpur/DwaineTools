@@ -3,6 +3,7 @@ import { useAppStore } from '../store';
 const tools = [
   { id: 'teleporter', name: 'Teleporter Generator' },
   { id: 'chemicompiler', name: 'Chemicompiler Emulator' },
+  { id: 'chemscript', name: 'ChemScript Compiler' },
   { id: 'about', name: 'About' },
 ];
 
