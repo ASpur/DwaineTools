@@ -76,11 +76,11 @@ export default function App() {
 
   useEffect(() => {
     if (appTitle === 'DWAINE TOOLS') {
-      document.title = 'Dwaine Tools';
+      document.title = 'DWAINE Tools | Goonstation';
     } else if (appTitle === 'Lives: 30') {
       document.title = 'Lives: 30';
     } else {
-      document.title = 'Syndicate Tools';
+      document.title = 'Syndicate Tools | Goonstation';
     }
   }, [appTitle]);
 
