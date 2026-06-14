@@ -1,6 +1,6 @@
 import { useState } from 'react';
 
-const PASSWORD = 'dwainiscool';
+const PASSWORD = 'dwaineiscool';
 const STORAGE_KEY = 'dwaine_unlocked';
 
 export function isUnlocked() {
