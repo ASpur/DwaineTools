@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect } from 'react';
+import { useEffect, useLayoutEffect, useState } from 'react';
 import AboutTool from './tools/AboutTool';
 import ChemicompilerTool from './tools/ChemicompilerTool';
 import ChemScriptTool from './tools/ChemScriptTool';
@@ -9,6 +9,7 @@ import RingMessageDialog from './components/RingMessageDialog';
 import GlitchEffects from './components/GlitchEffects';
 import { useKonamiCode } from './hooks/useKonamiCode';
 import { useAppStore } from './store';
+import PasswordGate, { isUnlocked } from './components/PasswordGate';
 
 const themeColors = {
   thinktronic: { text: '#19A319', bg: '#1B1E1B' },
@@ -45,13 +46,13 @@ const setThemeFavicon = (theme) => {
   document.head.appendChild(themeColor);
 };
 
-export default function App() {
-  const { 
-    theme, 
-    fontMode, 
-    isCrtEnabled, 
-    activeTool, 
-    appTitle, 
+function AppContent() {
+  const {
+    theme,
+    fontMode,
+    isCrtEnabled,
+    activeTool,
+    appTitle,
     teleporterUnlockSignal,
     isThemeSwitching,
     themeSwitchDuration,
@@ -76,11 +77,11 @@ export default function App() {
 
   useEffect(() => {
     if (appTitle === 'DWAINE TOOLS') {
-      document.title = 'Dwaine Tools';
+      document.title = 'DWAINE Tools | Goonstation';
     } else if (appTitle === 'Lives: 30') {
       document.title = 'Lives: 30';
     } else {
-      document.title = 'Syndicate Tools';
+      document.title = 'Syndicate Tools | Goonstation';
     }
   }, [appTitle]);
 
@@ -132,4 +133,14 @@ export default function App() {
       </main>
     </div>
   );
+}
+
+export default function App() {
+  const [unlocked, setUnlocked] = useState(isUnlocked);
+
+  if (!unlocked) {
+    return <PasswordGate onUnlock={() => setUnlocked(true)} />;
+  }
+
+  return <AppContent />;
 }
